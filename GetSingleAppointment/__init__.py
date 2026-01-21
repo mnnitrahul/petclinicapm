@@ -1,4 +1,4 @@
-    """
+"""
 Azure Function to get a single appointment by ID
 """
 import logging
