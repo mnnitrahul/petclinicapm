@@ -1,9 +1,9 @@
-"""
+    """
 Azure Function to get a single appointment by ID
 """
 import logging
 import json
-from typing import Dict, Any
+from datetime import datetime
 
 import azure.functions as func
 
@@ -12,7 +12,7 @@ import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-from shared_code.models import Appointment, AppointmentResponse
+from shared_code.models import create_success_response, create_error_response
 from shared_code.database import CosmosDBClient
 
 
@@ -97,32 +97,18 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                     mimetype="application/json"
                 )
 
-            # Convert to Pydantic model
-            try:
-                appointment = Appointment(**appointment_data)
-                response = AppointmentResponse(
-                    success=True,
-                    message="Appointment retrieved successfully",
-                    data=appointment
-                )
+            # Create simple success response
+            response = create_success_response(
+                "Appointment retrieved successfully",
+                appointment_data
+            )
 
-                logging.info(f"Successfully retrieved appointment with ID: {appointment_id}")
-                return func.HttpResponse(
-                    response.model_dump_json(),
-                    status_code=200,
-                    mimetype="application/json"
-                )
-
-            except Exception as e:
-                logging.error(f"Failed to parse appointment data: {str(e)}")
-                return func.HttpResponse(
-                    json.dumps({
-                        "success": False,
-                        "message": "Failed to parse appointment data"
-                    }),
-                    status_code=500,
-                    mimetype="application/json"
-                )
+            logging.info(f"Successfully retrieved appointment with ID: {appointment_id}")
+            return func.HttpResponse(
+                json.dumps(response),
+                status_code=200,
+                mimetype="application/json"
+            )
 
         except Exception as e:
             logging.error(f"Failed to retrieve appointment {appointment_id}: {str(e)}")

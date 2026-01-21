@@ -1,59 +1,56 @@
 """
-Pydantic models for appointment management
+Simple data models for appointment management
 """
-from pydantic import BaseModel, Field
-from typing import Optional, List
-from datetime import datetime
-from enum import Enum
 
+# Simple appointment statuses
+APPOINTMENT_STATUSES = [
+    "scheduled",
+    "confirmed", 
+    "completed",
+    "cancelled",
+    "no_show"
+]
 
-class AppointmentStatus(str, Enum):
-    SCHEDULED = "scheduled"
-    CONFIRMED = "confirmed"
-    COMPLETED = "completed"
-    CANCELLED = "cancelled"
-    NO_SHOW = "no_show"
+def create_appointment_data(request_data, appointment_id, timestamp):
+    """Create appointment data from request"""
+    return {
+        "id": appointment_id,
+        "patient_name": request_data.get("patient_name", ""),
+        "patient_email": request_data.get("patient_email", ""),
+        "patient_phone": request_data.get("patient_phone", ""),
+        "doctor_name": request_data.get("doctor_name", ""),
+        "appointment_date": request_data.get("appointment_date", ""),
+        "appointment_time": request_data.get("appointment_time", ""),
+        "duration_minutes": request_data.get("duration_minutes", 30),
+        "appointment_type": request_data.get("appointment_type", ""),
+        "status": "scheduled",
+        "notes": request_data.get("notes", ""),
+        "created_at": timestamp,
+        "updated_at": timestamp
+    }
 
+def create_success_response(message, data=None):
+    """Create success response"""
+    response = {
+        "success": True,
+        "message": message
+    }
+    if data:
+        response["data"] = data
+    return response
 
-class CreateAppointmentRequest(BaseModel):
-    patient_name: str = Field(..., min_length=2, max_length=100)
-    patient_email: str = Field(..., min_length=5, max_length=100)
-    patient_phone: str = Field(..., min_length=10, max_length=15)
-    doctor_name: str = Field(..., min_length=2, max_length=100)
-    appointment_date: str = Field(..., description="YYYY-MM-DD format")
-    appointment_time: str = Field(..., description="HH:MM format (24-hour)")
-    duration_minutes: int = Field(default=30, ge=15, le=240)
-    appointment_type: str = Field(..., min_length=3, max_length=50)
-    notes: Optional[str] = Field(None, max_length=500)
+def create_error_response(message):
+    """Create error response"""
+    return {
+        "success": False,
+        "message": message
+    }
 
-
-class Appointment(BaseModel):
-    id: str = Field(..., description="Unique appointment ID")
-    patient_name: str
-    patient_email: str
-    patient_phone: str
-    doctor_name: str
-    appointment_date: str
-    appointment_time: str
-    duration_minutes: int
-    appointment_type: str
-    status: AppointmentStatus = AppointmentStatus.SCHEDULED
-    notes: Optional[str] = None
-    created_at: str
-    updated_at: str
-
-    class Config:
-        use_enum_values = True
-
-
-class AppointmentResponse(BaseModel):
-    success: bool
-    message: str
-    data: Optional[Appointment] = None
-
-
-class AppointmentListResponse(BaseModel):
-    success: bool
-    message: str
-    data: Optional[List[Appointment]] = None
-    count: int = 0
+def create_list_response(message, data, count):
+    """Create list response"""
+    return {
+        "success": True,
+        "message": message,
+        "data": data,
+        "count": count
+    }

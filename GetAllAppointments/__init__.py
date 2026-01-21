@@ -3,7 +3,7 @@ Azure Function to get all appointments
 """
 import logging
 import json
-from typing import List, Dict, Any
+from datetime import datetime
 
 import azure.functions as func
 
@@ -12,7 +12,7 @@ import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-from shared_code.models import Appointment, AppointmentListResponse
+from shared_code.models import create_list_response, create_error_response
 from shared_code.database import CosmosDBClient
 
 
@@ -97,26 +97,15 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                 appointments_data = cosmos_client.get_all_appointments(limit=limit, offset=offset)
                 logging.info(f"Retrieved {len(appointments_data)} appointments with limit={limit}, offset={offset}")
 
-            # Convert to Pydantic models
-            appointments = []
-            for appointment_data in appointments_data:
-                try:
-                    appointment = Appointment(**appointment_data)
-                    appointments.append(appointment)
-                except Exception as e:
-                    logging.warning(f"Failed to parse appointment {appointment_data.get('id', 'unknown')}: {str(e)}")
-                    continue
-
-            # Create response
-            response = AppointmentListResponse(
-                success=True,
-                message=f"Retrieved {len(appointments)} appointments successfully",
-                data=appointments,
-                count=len(appointments)
+            # Create response with simple data
+            response = create_list_response(
+                f"Retrieved {len(appointments_data)} appointments successfully",
+                appointments_data,
+                len(appointments_data)
             )
 
             return func.HttpResponse(
-                response.model_dump_json(),
+                json.dumps(response),
                 status_code=200,
                 mimetype="application/json"
             )

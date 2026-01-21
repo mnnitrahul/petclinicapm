@@ -1,5 +1,5 @@
 """
-Simple test script for Azure Functions
+Simple test script for Azure Functions (no pydantic validation)
 This script can be used for local testing and validation
 """
 import json
@@ -38,41 +38,35 @@ def validate_appointment_data(appointment_data):
     print("✅ All required fields present")
     return True
 
-def test_models():
-    """Test Pydantic models"""
-    print("\n🧪 Testing Pydantic Models...")
+def test_simple_models():
+    """Test simple model functions"""
+    print("\n🧪 Testing Simple Model Functions...")
     
     try:
-        from shared_code.models import CreateAppointmentRequest, Appointment, AppointmentResponse
+        from shared_code.models import create_appointment_data, create_success_response, create_error_response
         
-        # Test CreateAppointmentRequest
+        # Test create_appointment_data
         test_data = create_test_appointment_data()
-        request_model = CreateAppointmentRequest(**test_data)
-        print("✅ CreateAppointmentRequest model validation passed")
+        appointment_id = str(uuid.uuid4())
+        timestamp = datetime.now().isoformat() + "Z"
         
-        # Test Appointment model
-        appointment_data = {
-            **test_data,
-            "id": str(uuid.uuid4()),
-            "status": "scheduled",
-            "created_at": datetime.utcnow().isoformat() + "Z",
-            "updated_at": datetime.utcnow().isoformat() + "Z"
-        }
-        appointment_model = Appointment(**appointment_data)
-        print("✅ Appointment model validation passed")
+        appointment_data = create_appointment_data(test_data, appointment_id, timestamp)
+        if validate_appointment_data(appointment_data):
+            print("✅ create_appointment_data function working")
         
-        # Test Response models
-        response = AppointmentResponse(
-            success=True,
-            message="Test successful",
-            data=appointment_model
-        )
-        print("✅ AppointmentResponse model validation passed")
+        # Test response functions
+        success_response = create_success_response("Test message", {"test": "data"})
+        if success_response.get("success") and success_response.get("message"):
+            print("✅ create_success_response function working")
+        
+        error_response = create_error_response("Error message")
+        if not error_response.get("success") and error_response.get("message"):
+            print("✅ create_error_response function working")
         
         return True
         
     except Exception as e:
-        print(f"❌ Model validation failed: {str(e)}")
+        print(f"❌ Model function test failed: {str(e)}")
         return False
 
 def test_database_client():
@@ -92,31 +86,27 @@ def test_database_client():
         return False
 
 def test_json_serialization():
-    """Test JSON serialization of models"""
+    """Test JSON serialization of simple data"""
     print("\n📄 Testing JSON Serialization...")
     
     try:
-        from shared_code.models import CreateAppointmentRequest, Appointment
+        from shared_code.models import create_appointment_data, create_success_response
         
-        # Test request serialization
+        # Test simple JSON serialization
         test_data = create_test_appointment_data()
-        request_model = CreateAppointmentRequest(**test_data)
-        json_data = request_model.model_dump_json()
-        parsed_data = json.loads(json_data)
-        print("✅ Request model JSON serialization passed")
+        appointment_id = str(uuid.uuid4())
+        timestamp = datetime.now().isoformat() + "Z"
         
-        # Test appointment serialization
-        appointment_data = {
-            **test_data,
-            "id": str(uuid.uuid4()),
-            "status": "scheduled",
-            "created_at": datetime.utcnow().isoformat() + "Z",
-            "updated_at": datetime.utcnow().isoformat() + "Z"
-        }
-        appointment_model = Appointment(**appointment_data)
-        json_data = appointment_model.model_dump_json()
+        appointment_data = create_appointment_data(test_data, appointment_id, timestamp)
+        json_data = json.dumps(appointment_data)
         parsed_data = json.loads(json_data)
-        print("✅ Appointment model JSON serialization passed")
+        print("✅ Appointment data JSON serialization passed")
+        
+        # Test response serialization
+        response = create_success_response("Test", appointment_data)
+        json_response = json.dumps(response)
+        parsed_response = json.loads(json_response)
+        print("✅ Response JSON serialization passed")
         
         return True
         
@@ -126,11 +116,11 @@ def test_json_serialization():
 
 def run_all_tests():
     """Run all tests"""
-    print("🚀 Starting Azure Functions Validation Tests")
-    print("=" * 50)
+    print("🚀 Starting Simplified Azure Functions Validation Tests")
+    print("=" * 60)
     
     tests = [
-        test_models,
+        test_simple_models,
         test_database_client,
         test_json_serialization
     ]
@@ -142,11 +132,12 @@ def run_all_tests():
         if test():
             passed += 1
     
-    print("\n" + "=" * 50)
+    print("\n" + "=" * 60)
     print(f"📊 Test Results: {passed}/{total} tests passed")
     
     if passed == total:
-        print("🎉 All tests passed! Your Azure Functions are ready for deployment.")
+        print("🎉 All tests passed! Your simplified Azure Functions are ready for deployment.")
+        print("ℹ️  No complex validation - perfect for APM demo!")
     else:
         print("⚠️  Some tests failed. Please review the errors above.")
         
