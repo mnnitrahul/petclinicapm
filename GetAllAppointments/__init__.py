@@ -1,0 +1,154 @@
+"""
+Azure Function to get all appointments
+"""
+import logging
+import json
+from typing import List, Dict, Any
+
+import azure.functions as func
+
+# Import shared modules
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+
+from shared_code.models import Appointment, AppointmentListResponse
+from shared_code.database import CosmosDBClient
+
+
+def main(req: func.HttpRequest) -> func.HttpResponse:
+    """Main function to handle getting all appointments"""
+    logging.info('GetAllAppointments function processed a request.')
+
+    try:
+        # Get query parameters for pagination and filtering
+        limit = int(req.params.get('limit', 100))
+        offset = int(req.params.get('offset', 0))
+        appointment_date = req.params.get('date')  # Optional date filter
+        
+        # Validate pagination parameters
+        if limit < 1 or limit > 1000:
+            return func.HttpResponse(
+                json.dumps({
+                    "success": False,
+                    "message": "Limit must be between 1 and 1000"
+                }),
+                status_code=400,
+                mimetype="application/json"
+            )
+        
+        if offset < 0:
+            return func.HttpResponse(
+                json.dumps({
+                    "success": False,
+                    "message": "Offset must be non-negative"
+                }),
+                status_code=400,
+                mimetype="application/json"
+            )
+
+        # Initialize Cosmos DB client
+        try:
+            cosmos_client = CosmosDBClient()
+        except ValueError as e:
+            logging.error(f"Database configuration error: {str(e)}")
+            return func.HttpResponse(
+                json.dumps({
+                    "success": False,
+                    "message": "Database configuration error. Please check environment variables."
+                }),
+                status_code=500,
+                mimetype="application/json"
+            )
+        except Exception as e:
+            logging.error(f"Database connection error: {str(e)}")
+            return func.HttpResponse(
+                json.dumps({
+                    "success": False,
+                    "message": "Database connection error"
+                }),
+                status_code=500,
+                mimetype="application/json"
+            )
+
+        # Get appointments based on whether date filter is provided
+        try:
+            if appointment_date:
+                # Validate date format if provided
+                from datetime import datetime
+                try:
+                    datetime.strptime(appointment_date, "%Y-%m-%d")
+                except ValueError:
+                    return func.HttpResponse(
+                        json.dumps({
+                            "success": False,
+                            "message": "Invalid date format. Use YYYY-MM-DD"
+                        }),
+                        status_code=400,
+                        mimetype="application/json"
+                    )
+                
+                # Get appointments for specific date
+                appointments_data = cosmos_client.get_appointments_by_date(appointment_date)
+                logging.info(f"Retrieved {len(appointments_data)} appointments for date {appointment_date}")
+                
+            else:
+                # Get all appointments with pagination
+                appointments_data = cosmos_client.get_all_appointments(limit=limit, offset=offset)
+                logging.info(f"Retrieved {len(appointments_data)} appointments with limit={limit}, offset={offset}")
+
+            # Convert to Pydantic models
+            appointments = []
+            for appointment_data in appointments_data:
+                try:
+                    appointment = Appointment(**appointment_data)
+                    appointments.append(appointment)
+                except Exception as e:
+                    logging.warning(f"Failed to parse appointment {appointment_data.get('id', 'unknown')}: {str(e)}")
+                    continue
+
+            # Create response
+            response = AppointmentListResponse(
+                success=True,
+                message=f"Retrieved {len(appointments)} appointments successfully",
+                data=appointments,
+                count=len(appointments)
+            )
+
+            return func.HttpResponse(
+                response.model_dump_json(),
+                status_code=200,
+                mimetype="application/json"
+            )
+
+        except Exception as e:
+            logging.error(f"Failed to retrieve appointments: {str(e)}")
+            return func.HttpResponse(
+                json.dumps({
+                    "success": False,
+                    "message": "Failed to retrieve appointments. Please try again."
+                }),
+                status_code=500,
+                mimetype="application/json"
+            )
+
+    except ValueError as e:
+        logging.error(f"Invalid query parameter: {str(e)}")
+        return func.HttpResponse(
+            json.dumps({
+                "success": False,
+                "message": "Invalid query parameters. Limit and offset must be integers."
+            }),
+            status_code=400,
+            mimetype="application/json"
+        )
+    except Exception as e:
+        logging.error(f"Unexpected error in GetAllAppointments: {str(e)}")
+        return func.HttpResponse(
+            json.dumps({
+                "success": False,
+                "message": "An unexpected error occurred"
+            }),
+            status_code=500,
+            mimetype="application/json"
+        )

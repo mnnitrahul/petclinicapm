@@ -1,0 +1,17 @@
+{
+    "python.defaultInterpreter": "./.venv/bin/python",
+    "python.pythonPath": "./.venv/bin/python",
+    "python.terminal.activateEnvironment": true,
+    "python.linting.enabled": true,
+    "python.linting.pylintEnabled": true,
+    "python.formatting.provider": "black",
+    "python.analysis.autoImportCompletions": true,
+    "python.analysis.extraPaths": [
+        "./shared_code"
+    ],
+    "azureFunctions.deploySubpath": ".",
+    "azureFunctions.pythonVenv": ".venv",
+    "azureFunctions.projectLanguage": "Python",
+    "azureFunctions.projectRuntime": "~4",
+    "debug.internalConsoleOptions": "neverOpen"
+}
