@@ -31,7 +31,7 @@ This Azure Functions application provides a RESTful API for managing appointment
 │   ├── __init__.py        # GET /api/appointments/{id}
 │   └── function.json
 ├── requirements.txt       # Python dependencies
-├── host.json             # Azure Functions host configuration
+├── host.json             # Azure Functions host configuration (REQUIRED for deployment)
 └── README.md
 ```
 
@@ -55,14 +55,23 @@ COSMOS_DB_CONTAINER=appointments                # Optional, defaults to 'appoint
 
 ### Local Development (.env file)
 
-Create a `.env` file in the root directory for local development:
+Create a `local.settings.json` file in the root directory for local development:
 
-```env
-COSMOS_DB_ENDPOINT=https://your-cosmosdb-account.documents.azure.com:443/
-COSMOS_DB_KEY=your-cosmos-db-primary-key
-COSMOS_DB_DATABASE=petclinic
-COSMOS_DB_CONTAINER=appointments
+```json
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "FUNCTIONS_WORKER_RUNTIME": "python",
+    "COSMOS_DB_ENDPOINT": "https://your-cosmosdb-account.documents.azure.com:443/",
+    "COSMOS_DB_KEY": "your-cosmos-db-primary-key",
+    "COSMOS_DB_DATABASE": "petclinic",
+    "COSMOS_DB_CONTAINER": "appointments"
+  }
+}
 ```
+
+**Note about host.json:** While `host.json` is primarily for Azure Functions runtime configuration (timeouts, extensions, etc.), it **cannot** be used for environment variables. Environment variables must be set via `local.settings.json` for local development or Azure App Settings for production.
 
 ## Data Models
 
@@ -309,7 +318,11 @@ The application uses `appointment_date` as the partition key, which:
    npm install -g azure-functions-core-tools@4 --unsafe-perm true
    # Or on macOS: brew tap azure/functions && brew install azure-functions-core-tools@4
    ```
-4. Create `.env` file with required environment variables
+4. **Configure environment variables for local development:**
+   ```bash
+   cp local.settings.json.template local.settings.json
+   # Edit local.settings.json with your actual Cosmos DB credentials
+   ```
 5. **For VS Code autocomplete**: The `.vscode/settings.json` is already configured to use the virtual environment
 6. Start the local development server:
    ```bash

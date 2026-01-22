@@ -65,6 +65,7 @@ Should return: `🎉 All tests passed! Your Azure Functions are ready for deploy
 ├── GetSingleAppointment/     # GET endpoint for single appointment
 ├── .vscode/                  # VS Code configuration for autocomplete
 ├── requirements.txt          # Python dependencies
+├── host.json                 # Azure Functions configuration (REQUIRED for deployment)
 └── APPOINTMENT_API_GUIDE.md  # 📖 MAIN DOCUMENTATION
 ```
 
