@@ -74,18 +74,34 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         print(f"❌ Connection error: {e}")
         cosmos_status["connection"] = f"FAILED - {e}"
     
-    # Prepare response
+    # Prepare comprehensive response with ALL debug info visible
     response = {
-        "message": "Debug Environment function completed",
+        "message": "🔍 Debug Environment function completed",
         "status": "SUCCESS",
         "cosmos_status": cosmos_status,
-        "environment_variables": {
-            "total_count": len(env_vars),
+        "cosmos_details": {
+            "endpoint": cosmos_endpoint if cosmos_endpoint else "❌ MISSING",
+            "key_present": "✅ YES" if cosmos_key else "❌ NO",
+            "key_length": len(cosmos_key) if cosmos_key else 0,
+            "database": cosmos_database,
+            "container": cosmos_container
+        },
+        "environment_summary": {
+            "total_env_vars": len(env_vars),
             "cosmos_endpoint_present": bool(cosmos_endpoint),
-            "cosmos_key_present": bool(cosmos_key),
-            "cosmos_database": cosmos_database,
-            "cosmos_container": cosmos_container
-        }
+            "cosmos_key_present": bool(cosmos_key)
+        },
+        "key_environment_variables": {
+            key: env_vars[key] for key in env_vars 
+            if key.startswith('COSMOS_') or key.startswith('AZURE_') or key.startswith('FUNCTIONS_')
+        },
+        "diagnosis": [
+            "✅ Azure Functions runtime working" if True else "❌ Runtime issue",
+            "✅ Environment variables accessible" if env_vars else "❌ No env vars",
+            "✅ Cosmos DB endpoint configured" if cosmos_endpoint else "❌ Missing COSMOS_DB_ENDPOINT",
+            "✅ Cosmos DB key configured" if cosmos_key else "❌ Missing COSMOS_DB_KEY",
+            "✅ azure.cosmos package available" if cosmos_status.get("import") == "SUCCESS" else "❌ azure.cosmos package missing"
+        ]
     }
     
     print(f"\n=== FINAL RESPONSE ===")
