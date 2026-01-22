@@ -1,0 +1,40 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Local development settings (contains sensitive keys)
+local.settings.json
+
+# Azure Functions
+.azure/
+.vscode/launch.json
+.vscode/tasks.json
+
+# Python virtual environment
+.venv/
+venv/
+env/
+
+# Environment variables
+.env
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE files
+.vscode/settings.json.bak
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# Azure Functions artifacts
+bin/
