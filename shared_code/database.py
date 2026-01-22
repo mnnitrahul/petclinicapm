@@ -10,22 +10,46 @@ from typing import Optional, Dict, Any, List
 
 class CosmosDBClient:
     def __init__(self):
+        logging.info("=== CosmosDBClient initialization START ===")
+        
         # Get environment variables
         self.endpoint = os.environ.get("COSMOS_DB_ENDPOINT")
         self.key = os.environ.get("COSMOS_DB_KEY")
         self.database_name = os.environ.get("COSMOS_DB_DATABASE", "petclinic")
         self.container_name = os.environ.get("COSMOS_DB_CONTAINER", "appointments")
         
+        # Log environment variable status (without exposing sensitive data)
+        logging.info(f"COSMOS_DB_ENDPOINT present: {bool(self.endpoint)}")
+        logging.info(f"COSMOS_DB_KEY present: {bool(self.key)}")
+        logging.info(f"COSMOS_DB_DATABASE: {self.database_name}")
+        logging.info(f"COSMOS_DB_CONTAINER: {self.container_name}")
+        
+        if self.endpoint:
+            # Log endpoint (safe to log)
+            logging.info(f"Cosmos DB Endpoint: {self.endpoint}")
+        
         if not self.endpoint or not self.key:
+            logging.error("Missing required environment variables!")
+            logging.error(f"COSMOS_DB_ENDPOINT missing: {not self.endpoint}")
+            logging.error(f"COSMOS_DB_KEY missing: {not self.key}")
             raise ValueError("COSMOS_DB_ENDPOINT and COSMOS_DB_KEY environment variables are required")
         
         # Initialize Cosmos client
-        self.client = CosmosClient(self.endpoint, self.key)
+        logging.info("Creating CosmosClient...")
+        try:
+            self.client = CosmosClient(self.endpoint, self.key)
+            logging.info("CosmosClient created successfully")
+        except Exception as e:
+            logging.error(f"Failed to create CosmosClient: {str(e)}")
+            raise
+        
         self.database = None
         self.container = None
         
         # Initialize database and container
+        logging.info("Initializing database and container...")
         self._initialize_database()
+        logging.info("=== CosmosDBClient initialization COMPLETE ===")
         
     def _initialize_database(self):
         """Initialize database and container if they don't exist"""

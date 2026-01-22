@@ -22,13 +22,18 @@ except ImportError:
 
 def main(req: func.HttpRequest) -> func.HttpResponse:
     """Main function to handle getting all appointments"""
-    logging.info('GetAllAppointments function processed a request.')
+    logging.info('=== GetAllAppointments function START ===')
+    logging.info(f'Request method: {req.method}')
+    logging.info(f'Request URL: {req.url}')
+    logging.info(f'Request params: {dict(req.params)}')
 
     try:
         # Get query parameters for pagination and filtering
         limit = int(req.params.get('limit', 100))
         offset = int(req.params.get('offset', 0))
         appointment_date = req.params.get('date')  # Optional date filter
+        
+        logging.info(f'Parsed parameters: limit={limit}, offset={offset}, appointment_date={appointment_date}')
         
         # Validate pagination parameters
         if limit < 1 or limit > 1000:
