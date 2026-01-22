@@ -57,6 +57,11 @@ jobs:
         run: |
           unzip release.zip
           rm release.zip
+
+      - name: Install dependencies for deployment
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt --target ./.python_packages/lib/site-packages; fi
         
       - name: Login to Azure
         uses: azure/login@v2
