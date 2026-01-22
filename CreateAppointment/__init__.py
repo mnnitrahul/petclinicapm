@@ -4,17 +4,21 @@ Azure Function to create a new appointment
 import logging
 import json
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 import azure.functions as func
 
-# Import shared modules
-import sys
-import os
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-
-from shared_code.models import create_appointment_data, create_success_response, create_error_response
-from shared_code.database import CosmosDBClient
+# Import shared modules (Azure Functions compatible way)
+try:
+    from shared_code.models import create_appointment_data, create_success_response, create_error_response
+    from shared_code.database import CosmosDBClient
+except ImportError:
+    # Fallback for Azure Functions runtime
+    import sys
+    import os
+    sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+    from shared_code.models import create_appointment_data, create_success_response, create_error_response
+    from shared_code.database import CosmosDBClient
 
 
 def validate_required_fields(data):
@@ -120,7 +124,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
 
         # Generate appointment ID and timestamps
         appointment_id = str(uuid.uuid4())
-        current_timestamp = datetime.utcnow().isoformat() + "Z"
+        current_timestamp = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
 
         # Create appointment data using helper function
         appointment_data = create_appointment_data(req_body, appointment_id, current_timestamp)

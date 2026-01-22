@@ -7,13 +7,17 @@ from datetime import datetime
 
 import azure.functions as func
 
-# Import shared modules
-import sys
-import os
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-
-from shared_code.models import create_success_response, create_error_response
-from shared_code.database import CosmosDBClient
+# Import shared modules (Azure Functions compatible way)
+try:
+    from shared_code.models import create_success_response, create_error_response
+    from shared_code.database import CosmosDBClient
+except ImportError:
+    # Fallback for Azure Functions runtime
+    import sys
+    import os
+    sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+    from shared_code.models import create_success_response, create_error_response
+    from shared_code.database import CosmosDBClient
 
 
 def main(req: func.HttpRequest) -> func.HttpResponse:
