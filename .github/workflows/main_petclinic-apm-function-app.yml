@@ -58,17 +58,10 @@ jobs:
           unzip release.zip
           rm release.zip
         
-      - name: Login to Azure
-        uses: azure/login@v2
-        with:
-          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_E9B31B1D750748F496B6737C51B0C08A }}
-          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_405E683D396047EAB0575BE33B0C91E1 }}
-          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_740757AFE8044270AAEF650709851218 }}
-
       - name: 'Deploy to Azure Functions'
         uses: Azure/functions-action@v1
         id: deploy-to-function
         with:
           app-name: 'petclinic-apm-function-app2'
-          slot-name: 'Production'
           package: ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}
+          publish-profile: ${{ secrets.AZURE_FUNCTIONAPP_PUBLISH_PROFILE }}
