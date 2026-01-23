@@ -1,18 +1,18 @@
 """
-Azure Blob Storage client using older azure-storage-blob==2.1.0
-Hopefully no cffi dependency - Azure Functions compatible
+Azure Blob Storage client using modern azure-storage-blob==12.19.0
+Azure Functions compatible with lazy initialization
 """
 import os
 import logging
 import json
 from typing import Optional, Dict, Any, List
-from azure.storage.blob import BlockBlobService
+from azure.storage.blob import BlobServiceClient
 
 
 class BlobStorageClient:
     """
-    Legacy Azure Storage implementation - No cffi dependency
-    Uses BlockBlobService from azure-storage package
+    Modern Azure Storage implementation using BlobServiceClient
+    Lazy initialization to avoid cold start issues in Azure Functions
     """
     
     def __init__(self):
@@ -28,13 +28,18 @@ class BlobStorageClient:
         self._container_initialized = False
         
     def _get_blob_service(self):
-        """Lazy initialization of BlockBlobService"""
+        """Lazy initialization of BlobServiceClient"""
         if self._blob_service is None:
             if self.connection_string:
-                # Use connection string directly with older BlockBlobService
-                self._blob_service = BlockBlobService(connection_string=self.connection_string)
+                # Use connection string directly with modern BlobServiceClient
+                self._blob_service = BlobServiceClient.from_connection_string(self.connection_string)
             elif self.account_name and self.account_key:
-                self._blob_service = BlockBlobService(account_name=self.account_name, account_key=self.account_key)
+                account_url = f"https://{self.account_name}.blob.core.windows.net"
+                from azure.storage.blob import BlobServiceClient
+                from azure.core.credentials import AzureKeyCredential
+                # Create credential object for the modern SDK
+                credential = AzureKeyCredential(self.account_key) 
+                self._blob_service = BlobServiceClient(account_url=account_url, credential=credential)
             else:
                 raise ValueError("Missing Azure Storage credentials: need AZURE_STORAGE_CONNECTION_STRING or (AZURE_STORAGE_ACCOUNT_NAME + AZURE_STORAGE_ACCOUNT_KEY)")
         return self._blob_service
@@ -44,9 +49,15 @@ class BlobStorageClient:
         if not self._container_initialized:
             try:
                 blob_service = self._get_blob_service()
-                # Create container if it doesn't exist
-                blob_service.create_container(self.container_name, fail_on_exist=False)
-                logging.info(f"Container '{self.container_name}' ready")
+                # Create container if it doesn't exist using modern API
+                try:
+                    blob_service.create_container(self.container_name)
+                    logging.info(f"Created container '{self.container_name}'")
+                except Exception as e:
+                    if "ContainerAlreadyExists" in str(e):
+                        logging.info(f"Container '{self.container_name}' already exists")
+                    else:
+                        raise
             except Exception as e:
                 logging.error(f"Failed to create/verify container: {str(e)}")
                 raise
@@ -74,14 +85,10 @@ class BlobStorageClient:
                 'created_at': pet_data.get('created_at', '')
             }
             
-            # Upload blob using BlockBlobService (legacy API)
+            # Upload blob using modern BlobServiceClient API
             blob_service = self._get_blob_service()
-            blob_service.create_blob_from_text(
-                self.container_name, 
-                blob_name, 
-                pet_json,
-                metadata=metadata
-            )
+            blob_client = blob_service.get_blob_client(container=self.container_name, blob=blob_name)
+            blob_client.upload_blob(pet_json, overwrite=True, metadata=metadata)
             
             logging.info(f"Successfully created pet with ID: {pet_id}")
             return pet_data
@@ -98,17 +105,22 @@ class BlobStorageClient:
             
             blob_name = f"{pet_id}.json"
             blob_service = self._get_blob_service()
+            blob_client = blob_service.get_blob_client(container=self.container_name, blob=blob_name)
             
-            # Download blob content using BlockBlobService (legacy API)
-            if blob_service.exists(self.container_name, blob_name):
-                blob_data = blob_service.get_blob_to_text(self.container_name, blob_name)
-                pet_data = json.loads(blob_data.content)
+            # Download blob content using modern BlobServiceClient API
+            try:
+                blob_data = blob_client.download_blob()
+                pet_json = blob_data.readall().decode('utf-8')
+                pet_data = json.loads(pet_json)
                 
                 logging.info(f"Retrieved pet with ID: {pet_id}")
                 return pet_data
-            else:
-                logging.warning(f"Pet with ID {pet_id} not found")
-                return None
+            except Exception as e:
+                if "BlobNotFound" in str(e):
+                    logging.warning(f"Pet with ID {pet_id} not found")
+                    return None
+                else:
+                    raise
             
         except Exception as e:
             logging.error(f"Failed to get pet {pet_id}: {str(e)}")
@@ -122,9 +134,10 @@ class BlobStorageClient:
             
             pets = []
             blob_service = self._get_blob_service()
+            container_client = blob_service.get_container_client(self.container_name)
             
-            # List blobs using BlockBlobService (legacy API)
-            blob_list = blob_service.list_blobs(self.container_name, include='metadata')
+            # List blobs using modern BlobServiceClient API
+            blob_list = container_client.list_blobs(include=['metadata'])
             
             count = 0
             for blob in blob_list:
@@ -132,9 +145,11 @@ class BlobStorageClient:
                     break
                     
                 try:
-                    # Download each pet blob
-                    blob_data = blob_service.get_blob_to_text(self.container_name, blob.name)
-                    pet_data = json.loads(blob_data.content)
+                    # Download each pet blob using modern API
+                    blob_client = blob_service.get_blob_client(container=self.container_name, blob=blob.name)
+                    blob_data = blob_client.download_blob()
+                    pet_json = blob_data.readall().decode('utf-8')
+                    pet_data = json.loads(pet_json)
                     pets.append(pet_data)
                     count += 1
                     
@@ -160,15 +175,19 @@ class BlobStorageClient:
             
             blob_name = f"{pet_id}.json"
             blob_service = self._get_blob_service()
+            blob_client = blob_service.get_blob_client(container=self.container_name, blob=blob_name)
             
-            # Check if blob exists and delete using BlockBlobService (legacy API)
-            if blob_service.exists(self.container_name, blob_name):
-                blob_service.delete_blob(self.container_name, blob_name)
+            # Check if blob exists and delete using modern BlobServiceClient API
+            try:
+                blob_client.delete_blob()
                 logging.info(f"Deleted pet with ID: {pet_id}")
                 return True
-            else:
-                logging.warning(f"Pet with ID {pet_id} not found")
-                return False
+            except Exception as e:
+                if "BlobNotFound" in str(e):
+                    logging.warning(f"Pet with ID {pet_id} not found")
+                    return False
+                else:
+                    raise
             
         except Exception as e:
             logging.error(f"Failed to delete pet {pet_id}: {str(e)}")
@@ -182,16 +201,20 @@ class BlobStorageClient:
             
             pets = []
             blob_service = self._get_blob_service()
+            container_client = blob_service.get_container_client(self.container_name)
             
-            # List blobs with metadata using BlockBlobService (legacy API)
-            blob_list = blob_service.list_blobs(self.container_name, include='metadata')
+            # List blobs with metadata using modern BlobServiceClient API
+            blob_list = container_client.list_blobs(include=['metadata'])
             
             for blob in blob_list:
                 # Check metadata first for efficiency
                 if blob.metadata and blob.metadata.get('species', '').lower() == species.lower():
                     try:
-                        blob_data = blob_service.get_blob_to_text(self.container_name, blob.name)
-                        pet_data = json.loads(blob_data.content)
+                        # Download each pet blob using modern API
+                        blob_client = blob_service.get_blob_client(container=self.container_name, blob=blob.name)
+                        blob_data = blob_client.download_blob()
+                        pet_json = blob_data.readall().decode('utf-8')
+                        pet_data = json.loads(pet_json)
                         pets.append(pet_data)
                     except Exception as e:
                         logging.warning(f"Failed to read pet blob {blob.name}: {str(e)}")
