@@ -9,7 +9,7 @@
       "methods": [
         "get"
       ],
-      "route": "appointments-test"
+      "route": "pets"
     },
     {
       "type": "http",

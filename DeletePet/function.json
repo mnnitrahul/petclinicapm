@@ -7,10 +7,9 @@
       "direction": "in",
       "name": "req",
       "methods": [
-        "get",
-        "post"
+        "delete"
       ],
-      "route": "debug"
+      "route": "pets/{id}"
     },
     {
       "type": "http",
