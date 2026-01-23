@@ -5,3 +5,9 @@ azure-storage-blob==12.19.0
 six==1.17.0
 requests==2.31.0
 python-dateutil==2.8.2
+
+# OpenTelemetry for dependency tracking (Azure Monitor integration)
+opentelemetry-sdk
+opentelemetry-instrumentation-azure-sdk
+opentelemetry-instrumentation-requests
+azure-monitor-opentelemetry

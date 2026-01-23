@@ -5,6 +5,12 @@ import logging
 import json
 import azure.functions as func
 
+# Import telemetry first for dependency tracking
+try:
+    from shared_code import telemetry  # Enables OpenTelemetry dependency tracking
+except ImportError:
+    pass  # Telemetry is optional
+
 # Import shared modules (Azure Functions compatible way)
 try:
     from shared_code.models import create_success_response, create_error_response
