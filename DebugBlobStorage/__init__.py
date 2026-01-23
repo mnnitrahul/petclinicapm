@@ -24,18 +24,15 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     }
 
     try:
-        # Test 1: Check built-in Python libraries (no external dependencies)
+        # Test 1: Check Azure SDK import
         try:
-            import urllib.request
-            import urllib.error
-            import hmac
-            import hashlib
-            import base64
-            debug_info["imports"]["python_builtin"] = "SUCCESS"
-            debug_info["diagnosis"].append("✅ Built-in Python libraries available (Azure SDK-compatible interface)")
+            from azure.storage.blob import BlobServiceClient, BlobClient, ContainerClient
+            from azure.core.exceptions import ResourceExistsError, ResourceNotFoundError
+            debug_info["imports"]["azure_storage_blob"] = "SUCCESS"
+            debug_info["diagnosis"].append("✅ Azure Storage Blob SDK available")
         except ImportError as e:
-            debug_info["imports"]["python_builtin"] = f"FAILED - {str(e)}"
-            debug_info["diagnosis"].append("❌ Built-in Python libraries missing")
+            debug_info["imports"]["azure_storage_blob"] = f"FAILED - {str(e)}"
+            debug_info["diagnosis"].append("❌ Azure Storage Blob SDK missing")
             debug_info["status"] = "ERROR"
 
         # Test 2: Check environment variables
@@ -80,8 +77,8 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
             debug_info["status"] = "ERROR"
 
         # Test 3: Skip direct connection test (will test via BlobStorageClient)
-        debug_info["connection_test"]["method"] = "pure_python_azure_compatible"
-        debug_info["diagnosis"].append("✅ Using pure Python Azure-compatible implementation")
+        debug_info["connection_test"]["method"] = "azure_sdk"
+        debug_info["diagnosis"].append("✅ Using official Azure Storage Blob SDK")
 
         # Test 4: Test BlobStorageClient class
         try:
