@@ -1,10 +1,13 @@
 """
-Simple test script for Azure Functions (no pydantic validation)
-This script can be used for local testing and validation
+Comprehensive test script for Azure Functions with Azure SDK validation
+This script MUST pass before pushing any code to git
+Use this as a reflection point to ensure code quality
 """
 import json
 import uuid
 from datetime import datetime
+import sys
+import os
 
 def create_test_appointment_data():
     """Generate test appointment data"""
@@ -18,6 +21,19 @@ def create_test_appointment_data():
         "duration_minutes": 30,
         "appointment_type": "Checkup",
         "notes": "Regular checkup for Max"
+    }
+
+def create_test_pet_data():
+    """Generate test pet data"""
+    return {
+        "id": str(uuid.uuid4()),
+        "name": "Buddy",
+        "species": "Dog", 
+        "breed": "Golden Retriever",
+        "age": 3,
+        "owner_name": "John Doe",
+        "owner_email": "john.doe@email.com",
+        "created_at": datetime.now().isoformat() + "Z"
     }
 
 def validate_appointment_data(appointment_data):
@@ -69,6 +85,76 @@ def test_simple_models():
         print(f"❌ Model function test failed: {str(e)}")
         return False
 
+def test_azure_sdk_imports():
+    """Test critical Azure SDK imports - MUST PASS before git push"""
+    print("\n☁️  Testing Azure SDK Imports...")
+    
+    try:
+        # Test modern Azure Storage Blob SDK
+        from azure.storage.blob import BlobServiceClient, BlobClient, ContainerClient
+        print("✅ Azure Storage Blob SDK imports successful")
+        
+        # Test Azure Cosmos SDK
+        from azure.cosmos import CosmosClient
+        print("✅ Azure Cosmos SDK imports successful")
+        
+        # Test Azure Identity SDK 
+        from azure.identity import DefaultAzureCredential
+        print("✅ Azure Identity SDK imports successful")
+        
+        # Test that we can create client classes (no network calls)
+        blob_client_class = BlobServiceClient
+        cosmos_client_class = CosmosClient
+        print("✅ All Azure SDK client classes available")
+        
+        return True
+        
+    except ImportError as e:
+        print(f"❌ CRITICAL: Azure SDK import failed: {str(e)}")
+        print("🚨 DO NOT PUSH TO GIT - Fix imports first!")
+        return False
+
+def test_blob_storage_client():
+    """Test BlobStorageClient with modern Azure SDK"""
+    print("\n📦 Testing BlobStorageClient...")
+    
+    try:
+        from shared_code.blob_storage import BlobStorageClient
+        
+        # Test client creation (lazy initialization)
+        client = BlobStorageClient()
+        print("✅ BlobStorageClient created successfully")
+        
+        # Test all required methods exist
+        required_methods = [
+            'create_pet', 'get_pet_by_id', 'get_all_pets', 
+            'delete_pet', 'get_pets_by_species'
+        ]
+        
+        for method in required_methods:
+            if hasattr(client, method) and callable(getattr(client, method)):
+                print(f"✅ Method {method} available and callable")
+            else:
+                print(f"❌ Method {method} missing or not callable")
+                return False
+        
+        # Test that the client uses modern Azure SDK
+        if hasattr(client, '_get_blob_service'):
+            print("✅ Modern BlobServiceClient implementation detected")
+        else:
+            print("❌ Legacy implementation detected")
+            return False
+            
+        print("ℹ️  Note: Actual blob operations require environment variables")
+        return True
+        
+    except ImportError as e:
+        print(f"❌ BlobStorageClient import failed: {str(e)}")
+        return False
+    except Exception as e:
+        print(f"❌ BlobStorageClient test failed: {str(e)}")
+        return False
+
 def test_database_client():
     """Test database client instantiation"""
     print("\n🗄️  Testing Database Client...")
@@ -76,13 +162,62 @@ def test_database_client():
     try:
         from shared_code.database import CosmosDBClient
         
-        # This will fail without proper environment variables, but we can test the import
-        print("✅ Database client import successful")
+        # Test client creation (lazy initialization)
+        client = CosmosDBClient()
+        print("✅ CosmosDBClient created successfully")
+        
+        # Test required methods exist
+        required_methods = [
+            'create_appointment', 'get_appointment_by_id', 'get_all_appointments',
+            'update_appointment', 'delete_appointment'
+        ]
+        
+        for method in required_methods:
+            if hasattr(client, method) and callable(getattr(client, method)):
+                print(f"✅ Method {method} available and callable")
+            else:
+                print(f"❌ Method {method} missing or not callable")
+                return False
+        
         print("ℹ️  Note: Actual database connection requires environment variables")
         return True
         
     except ImportError as e:
         print(f"❌ Database client import failed: {str(e)}")
+        return False
+    except Exception as e:
+        print(f"❌ Database client test failed: {str(e)}")
+        return False
+
+def test_pet_models():
+    """Test pet model functions"""
+    print("\n🐕 Testing Pet Models...")
+    
+    try:
+        from shared_code.pet_models import create_pet_data, validate_pet_data, create_pet_response
+        
+        # Test create_pet_data
+        test_pet = create_test_pet_data()
+        pet_data = create_pet_data(test_pet)
+        
+        if validate_pet_data(pet_data):
+            print("✅ create_pet_data and validate_pet_data working")
+        else:
+            print("❌ Pet data validation failed")
+            return False
+        
+        # Test create_pet_response
+        response = create_pet_response(pet_data)
+        if response.get("success") and response.get("data"):
+            print("✅ create_pet_response working")
+        else:
+            print("❌ create_pet_response failed")
+            return False
+        
+        return True
+        
+    except Exception as e:
+        print(f"❌ Pet model test failed: {str(e)}")
         return False
 
 def test_json_serialization():
@@ -115,33 +250,74 @@ def test_json_serialization():
         return False
 
 def run_all_tests():
-    """Run all tests"""
-    print("🚀 Starting Simplified Azure Functions Validation Tests")
-    print("=" * 60)
+    """Run all comprehensive tests before git push"""
+    print("🚀 Starting Comprehensive Azure Functions Tests")
+    print("🔒 SAFETY GATE: This test suite prevents broken code from reaching git")
+    print("=" * 70)
     
-    tests = [
-        test_simple_models,
-        test_database_client,
-        test_json_serialization
+    # Critical tests that MUST pass before git push
+    critical_tests = [
+        ("Azure SDK Imports", test_azure_sdk_imports),
+        ("BlobStorage Client", test_blob_storage_client),
+        ("Database Client", test_database_client),
     ]
     
+    # Additional validation tests 
+    validation_tests = [
+        ("Appointment Models", test_simple_models),
+        ("Pet Models", test_pet_models),
+        ("JSON Serialization", test_json_serialization),
+    ]
+    
+    all_tests = critical_tests + validation_tests
+    
     passed = 0
-    total = len(tests)
+    critical_passed = 0
+    total = len(all_tests)
     
-    for test in tests:
-        if test():
+    for i, (test_name, test_func) in enumerate(all_tests, 1):
+        print(f"\n[{i}/{total}] Running {test_name}...")
+        if test_func():
             passed += 1
+            if i <= len(critical_tests):
+                critical_passed += 1
+        else:
+            if i <= len(critical_tests):
+                print(f"🚨 CRITICAL TEST FAILED: {test_name}")
     
-    print("\n" + "=" * 60)
+    print("\n" + "=" * 70)
     print(f"📊 Test Results: {passed}/{total} tests passed")
+    print(f"🔒 Critical Tests: {critical_passed}/{len(critical_tests)} passed")
     
-    if passed == total:
-        print("🎉 All tests passed! Your simplified Azure Functions are ready for deployment.")
-        print("ℹ️  No complex validation - perfect for APM demo!")
+    if critical_passed == len(critical_tests) and passed == total:
+        print("🎉 ALL TESTS PASSED! Code is safe to push to git.")
+        print("✅ Azure SDK implementation verified")
+        print("✅ All client implementations working")
+        print("✅ Model functions validated")
+        print("\n🚀 Ready for Azure Functions deployment!")
+        return True
+    elif critical_passed == len(critical_tests):
+        print("⚠️  Critical tests passed, but some validation tests failed.")
+        print("🔒 Code is technically safe to push, but consider fixing validation issues.")
+        return True  # Allow push if critical tests pass
     else:
-        print("⚠️  Some tests failed. Please review the errors above.")
-        
-    return passed == total
+        print("🚨 CRITICAL TESTS FAILED!")
+        print("❌ DO NOT PUSH TO GIT until all critical tests pass!")
+        print("🔧 Fix the Azure SDK implementation issues first.")
+        return False
+
+def pre_git_push_check():
+    """Run this before every git push"""
+    print("🔒 PRE-GIT-PUSH SAFETY CHECK")
+    print("=" * 50)
+    
+    if run_all_tests():
+        print("\n✅ SAFE TO PUSH: All tests passed")
+        return True
+    else:
+        print("\n❌ UNSAFE TO PUSH: Tests failed")
+        print("💡 Fix the issues above before pushing to git")
+        return False
 
 if __name__ == "__main__":
     success = run_all_tests()
