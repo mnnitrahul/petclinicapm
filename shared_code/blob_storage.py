@@ -52,14 +52,24 @@ class BlobStorageClient:
     
     def _parse_connection_string(self):
         """Parse Azure Storage connection string"""
+        if not self.connection_string:
+            return
+            
         parts = self.connection_string.split(';')
         for part in parts:
+            part = part.strip()
             if '=' in part:
                 key, value = part.split('=', 1)
+                key = key.strip()
+                value = value.strip()
+                logging.info(f"Connection string part: {key}={value[:10]}..." if len(value) > 10 else f"Connection string part: {key}={value}")
+                
                 if key == 'AccountName':
                     self.account_name = value
+                    logging.info(f"✅ Parsed account name: {value}")
                 elif key == 'AccountKey':
                     self.account_key = value
+                    logging.info(f"✅ Parsed account key: {value[:10]}...")
     
     def _get_auth_header(self, method: str, url_path: str, headers: Dict[str, str] = None) -> Dict[str, str]:
         """Generate Azure Storage authentication header"""
