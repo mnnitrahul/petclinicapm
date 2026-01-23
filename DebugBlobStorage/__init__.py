@@ -10,7 +10,7 @@ import azure.functions as func
 
 
 def main(req: func.HttpRequest) -> func.HttpResponse:
-    """Debug function for blob storage issues"""
+    """Debug function for blob storage issues - ALWAYS returns 200 with error details"""
     logging.info('DebugBlobStorage function processed a request.')
 
     debug_info = {
@@ -20,9 +20,11 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         "imports": {},
         "environment_variables": {},
         "connection_test": {},
-        "diagnosis": []
+        "diagnosis": [],
+        "detailed_errors": []
     }
 
+    # ALWAYS return 200 - capture ALL errors in debug_info
     try:
         # Test 1: Check Azure SDK import
         try:
@@ -31,8 +33,14 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
             debug_info["imports"]["azure_storage_blob"] = "SUCCESS"
             debug_info["diagnosis"].append("✅ Azure Storage Blob SDK available")
         except ImportError as e:
-            debug_info["imports"]["azure_storage_blob"] = f"FAILED - {str(e)}"
-            debug_info["diagnosis"].append("❌ Azure Storage Blob SDK missing")
+            debug_info["imports"]["azure_storage_blob"] = f"FAILED - ImportError: {str(e)}"
+            debug_info["diagnosis"].append(f"❌ Azure Storage Blob SDK missing: {str(e)}")
+            debug_info["detailed_errors"].append(f"Azure SDK import error: {str(e)}")
+            debug_info["status"] = "ERROR"
+        except Exception as e:
+            debug_info["imports"]["azure_storage_blob"] = f"FAILED - Unexpected error: {str(e)}"
+            debug_info["diagnosis"].append(f"❌ Azure Storage Blob SDK unexpected error: {str(e)}")
+            debug_info["detailed_errors"].append(f"Azure SDK unexpected import error: {str(e)}")
             debug_info["status"] = "ERROR"
 
         # Test 2: Check environment variables
