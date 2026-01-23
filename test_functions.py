@@ -86,51 +86,60 @@ def test_simple_models():
         return False
 
 def test_azure_sdk_imports():
-    """Test critical Azure SDK imports and actual instantiation - MUST PASS before git push"""
-    print("\n☁️  Testing Azure SDK Imports & Instantiation...")
+    """Test critical Azure SDK imports - simulates Azure Functions runtime issues"""
+    print("\n☁️  Testing Azure SDK Imports & Azure Functions Compatibility...")
     
     try:
-        # Test modern Azure Storage Blob SDK
-        from azure.storage.blob import BlobServiceClient, BlobClient, ContainerClient
-        print("✅ Azure Storage Blob SDK imports successful")
-        
-        # Actually create BlobServiceClient instance
-        try:
-            # Use dummy connection string to test instantiation (no network calls)
-            dummy_conn = "DefaultEndpointsProtocol=https;AccountName=test;AccountKey=dGVzdA==;EndpointSuffix=core.windows.net"
-            blob_client = BlobServiceClient.from_connection_string(dummy_conn)
-            print("✅ BlobServiceClient instantiation successful")
-        except Exception as e:
-            if "AccountKey" in str(e) or "connection" in str(e):
-                print("✅ BlobServiceClient instantiation works (expected auth error)")
-            else:
-                print(f"❌ BlobServiceClient instantiation failed unexpectedly: {str(e)}")
-                return False
-        
-        # Test Azure Cosmos SDK
+        # Test Azure Cosmos SDK first (should work)
         from azure.cosmos import CosmosClient
         print("✅ Azure Cosmos SDK imports successful")
         
-        # Actually create CosmosClient instance
+        # Test Azure Storage Blob SDK - this may fail in Azure Functions due to cryptography
         try:
-            # Use dummy endpoint to test instantiation (no network calls)
+            from azure.storage.blob import BlobServiceClient, BlobClient, ContainerClient
+            print("✅ Azure Storage Blob SDK imports successful")
+            
+            # Test actual instantiation to catch cryptography issues
+            dummy_conn = "DefaultEndpointsProtocol=https;AccountName=test;AccountKey=dGVzdA==;EndpointSuffix=core.windows.net"
+            blob_client = BlobServiceClient.from_connection_string(dummy_conn)
+            print("✅ BlobServiceClient instantiation successful")
+            
+        except ImportError as e:
+            error_str = str(e)
+            if ("cryptography" in error_str or "PyType_GetName" in error_str or 
+                "_rust.abi3.so" in error_str or "undefined symbol" in error_str):
+                print(f"❌ AZURE FUNCTIONS COMPATIBILITY ISSUE: {error_str}")
+                print("🔧 Azure Functions runtime has cryptography library issues")
+                print("💡 Need to use pure REST API approach instead of Azure SDK")
+                return False
+            else:
+                print(f"❌ Azure Storage SDK import failed: {error_str}")
+                return False
+        except Exception as e:
+            error_str = str(e)
+            if ("cryptography" in error_str or "PyType_GetName" in error_str):
+                print(f"❌ AZURE FUNCTIONS COMPATIBILITY ISSUE: {error_str}")
+                return False
+            elif "AccountKey" in error_str or "connection" in error_str:
+                print("✅ BlobServiceClient works (expected auth error)")
+            else:
+                print(f"❌ BlobServiceClient failed: {error_str}")
+                return False
+        
+        # Test Azure Cosmos instantiation
+        try:
             cosmos_client = CosmosClient("https://test.documents.azure.com:443/", "dGVzdA==")
             print("✅ CosmosClient instantiation successful")
         except Exception as e:
             error_str = str(e).lower()
             if ("authorization" in error_str or "forbidden" in error_str or 
                 "consistencypolicy" in error_str or "nonetype" in error_str):
-                print("✅ CosmosClient instantiation works (expected initialization/auth error)")
+                print("✅ CosmosClient works (expected initialization/auth error)")
             else:
-                print(f"❌ CosmosClient instantiation failed unexpectedly: {str(e)}")
+                print(f"❌ CosmosClient failed: {error_str}")
                 return False
         
-        # Test Azure Identity SDK 
-        from azure.identity import DefaultAzureCredential
-        print("✅ Azure Identity SDK imports successful")
-        
-        print("✅ All Azure SDK dependencies verified working")
-        
+        print("✅ Azure SDK compatibility verified")
         return True
         
     except ImportError as e:
@@ -138,12 +147,12 @@ def test_azure_sdk_imports():
         print("🚨 DO NOT PUSH TO GIT - Fix imports first!")
         return False
     except Exception as e:
-        print(f"❌ CRITICAL: Azure SDK instantiation failed: {str(e)}")
-        print("🚨 DO NOT PUSH TO GIT - Fix SDK integration first!")
+        print(f"❌ CRITICAL: Azure SDK compatibility failed: {str(e)}")
+        print("🚨 DO NOT PUSH TO GIT - Fix runtime compatibility first!")
         return False
 
 def test_blob_storage_client():
-    """Test BlobStorageClient with modern Azure SDK - calls actual dependencies"""
+    """Test BlobStorageClient with pure REST API - Azure Functions compatible"""
     print("\n📦 Testing BlobStorageClient...")
     
     try:
@@ -166,42 +175,40 @@ def test_blob_storage_client():
                 print(f"❌ Method {method} missing or not callable")
                 return False
         
-        # Test that the client uses modern Azure SDK
-        if hasattr(client, '_get_blob_service'):
-            print("✅ Modern BlobServiceClient implementation detected")
+        # Test that the client uses pure REST API (no Azure SDK)
+        if hasattr(client, '_make_request') and hasattr(client, '_get_auth_header'):
+            print("✅ Pure REST API implementation detected")
         else:
-            print("❌ Legacy implementation detected")
+            print("❌ REST API methods missing")
             return False
         
-        # Actually test calling the Azure SDK (will fail without credentials, but we want to verify the call chain)
-        print("🔧 Testing actual Azure SDK dependency calls...")
+        # Verify no Azure SDK dependencies
+        if not hasattr(client, '_get_blob_service'):
+            print("✅ No Azure SDK dependencies - Azure Functions compatible!")
+        else:
+            print("❌ Still has Azure SDK dependencies")
+            return False
         
-        # Set dummy connection string to test the SDK call chain
+        # Test credential parsing 
+        print("🔧 Testing REST API credential handling...")
+        
+        # Set dummy connection string to test parsing
         import os
         original_conn = os.environ.get("AZURE_STORAGE_CONNECTION_STRING")
-        os.environ["AZURE_STORAGE_CONNECTION_STRING"] = "DefaultEndpointsProtocol=https;AccountName=test;AccountKey=dGVzdA==;EndpointSuffix=core.windows.net"
+        os.environ["AZURE_STORAGE_CONNECTION_STRING"] = "DefaultEndpointsProtocol=https;AccountName=testaccount;AccountKey=dGVzdGtleQ==;EndpointSuffix=core.windows.net"
         
         try:
-            # This should call BlobServiceClient.from_connection_string() internally
-            blob_service = client._get_blob_service()
-            print("✅ _get_blob_service() calls Azure SDK successfully")
-            
-            # Test that it returns the expected type
-            from azure.storage.blob import BlobServiceClient
-            if isinstance(blob_service, BlobServiceClient):
-                print("✅ Returns correct BlobServiceClient instance")
+            # Create new client to test connection string parsing
+            test_client = BlobStorageClient()
+            if test_client.account_name == "testaccount" and test_client.account_key == "dGVzdGtleQ==":
+                print("✅ Connection string parsing works correctly")
             else:
-                print(f"❌ Wrong type returned: {type(blob_service)}")
+                print(f"❌ Connection string parsing failed: {test_client.account_name}, {test_client.account_key}")
                 return False
                 
         except Exception as e:
-            error_str = str(e)
-            if ("AccountKey" in error_str or "connection" in error_str or "authentication" in error_str or 
-                "Missing Azure Storage credentials" in error_str):
-                print("✅ Azure SDK integration works (expected credential error)")
-            else:
-                print(f"❌ Unexpected error in Azure SDK call: {str(e)}")
-                return False
+            print(f"❌ Connection string parsing error: {str(e)}")
+            return False
         finally:
             # Restore original connection string
             if original_conn:
@@ -209,7 +216,7 @@ def test_blob_storage_client():
             else:
                 os.environ.pop("AZURE_STORAGE_CONNECTION_STRING", None)
             
-        print("ℹ️  Note: Full blob operations require valid credentials")
+        print("ℹ️  Note: Uses pure REST API - no cryptography dependency!")
         return True
         
     except ImportError as e:
