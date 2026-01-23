@@ -130,21 +130,40 @@ class BlobStorageClient:
     def get_all_pets(self, limit: int = 100) -> List[Dict[str, Any]]:
         """Get all pets with optional limit"""
         try:
+            logging.info(f"Starting get_all_pets with limit: {limit}")
+            
             # Ensure container exists before first operation
             self._ensure_container_exists()
+            logging.info(f"Container '{self.container_name}' verified/created successfully")
             
             pets = []
             blob_service = self._get_blob_service()
             container_client = blob_service.get_container_client(self.container_name)
             
             # List blobs using modern BlobServiceClient API
-            blob_list = container_client.list_blobs(include=['metadata'])
+            logging.info(f"Attempting to list blobs in container '{self.container_name}'")
+            try:
+                blob_list = container_client.list_blobs(include=['metadata'])
+                logging.info("Successfully called list_blobs()")
+            except Exception as e:
+                logging.error(f"Failed to list blobs: {str(e)}")
+                # Check if it's an authorization error
+                if "authorization" in str(e).lower() or "forbidden" in str(e).lower():
+                    raise ValueError(f"Authorization failed for blob storage. Check credentials and permissions: {str(e)}")
+                elif "not found" in str(e).lower() or "does not exist" in str(e).lower():
+                    raise ValueError(f"Container '{self.container_name}' not found: {str(e)}")
+                else:
+                    raise ValueError(f"Failed to access blob storage: {str(e)}")
             
+            # Process blobs
             count = 0
+            blob_count = 0
             for blob in blob_list:
+                blob_count += 1
                 if count >= limit:
                     break
                     
+                logging.info(f"Processing blob: {blob.name}")
                 try:
                     # Download each pet blob using modern API
                     blob_client = blob_service.get_blob_client(container=self.container_name, blob=blob.name)
@@ -158,14 +177,17 @@ class BlobStorageClient:
                     logging.warning(f"Failed to read pet blob {blob.name}: {str(e)}")
                     continue
             
+            logging.info(f"Found {blob_count} total blobs, processed {count} successfully")
+            
             # Sort by created_at descending
             pets.sort(key=lambda x: x.get('created_at', ''), reverse=True)
             
-            logging.info(f"Retrieved {len(pets)} pets")
+            logging.info(f"Retrieved {len(pets)} pets successfully")
             return pets
             
         except Exception as e:
             logging.error(f"Failed to get all pets: {str(e)}")
+            # Re-raise with more specific error message
             raise
     
     def delete_pet(self, pet_id: str) -> bool:
