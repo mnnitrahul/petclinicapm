@@ -99,6 +99,70 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                 debug_info["diagnosis"].append(f"❌ BlobStorageClient initialization failed: {str(init_error)}")
                 debug_info["status"] = "ERROR"
                 
+                # Test step-by-step authentication
+                if connection_string:
+                    debug_info["auth_debug"] = {}
+                    try:
+                        # Parse connection string manually
+                        parts = connection_string.split(';')
+                        account_name = None
+                        account_key = None
+                        for part in parts:
+                            part = part.strip()
+                            if '=' in part:
+                                key, value = part.split('=', 1)
+                                if key.strip() == 'AccountName':
+                                    account_name = value.strip()
+                                elif key.strip() == 'AccountKey':
+                                    account_key = value.strip()
+                        
+                        debug_info["auth_debug"]["parsed_account_name"] = account_name
+                        debug_info["auth_debug"]["parsed_key_length"] = len(account_key) if account_key else 0
+                        
+                        if account_name and account_key:
+                            # Test creating a simple authentication header
+                            import urllib.request
+                            import hmac
+                            import hashlib
+                            import base64
+                            from datetime import datetime, timezone
+                            
+                            method = "PUT"
+                            url_path = "/pets?restype=container"
+                            
+                            now = datetime.now(timezone.utc)
+                            date_str = now.strftime('%a, %d %b %Y %H:%M:%S GMT')
+                            
+                            # Create string to sign
+                            string_to_sign = f"{method}\n\n\n0\n\n\n\n\n\n\n\n\nx-ms-date:{date_str}\nx-ms-version:2020-10-02\n/{account_name}{url_path}"
+                            
+                            debug_info["auth_debug"]["string_to_sign"] = string_to_sign
+                            debug_info["auth_debug"]["date_str"] = date_str
+                            
+                            # Generate signature
+                            try:
+                                signature = base64.b64encode(
+                                    hmac.new(
+                                        base64.b64decode(account_key),
+                                        string_to_sign.encode('utf-8'),
+                                        hashlib.sha256
+                                    ).digest()
+                                ).decode('utf-8')
+                                
+                                debug_info["auth_debug"]["signature"] = f"{signature[:20]}..."
+                                debug_info["auth_debug"]["auth_header"] = f"SharedKey {account_name}:{signature[:20]}..."
+                                debug_info["diagnosis"].append(f"🔍 Auth Debug: Generated signature successfully")
+                                
+                            except Exception as sig_error:
+                                debug_info["auth_debug"]["signature_error"] = str(sig_error)
+                                debug_info["diagnosis"].append(f"❌ Auth Debug: Signature generation failed: {str(sig_error)}")
+                        else:
+                            debug_info["diagnosis"].append(f"❌ Auth Debug: Missing account name or key")
+                            
+                    except Exception as auth_debug_error:
+                        debug_info["auth_debug"]["error"] = str(auth_debug_error)
+                        debug_info["diagnosis"].append(f"❌ Auth Debug failed: {str(auth_debug_error)}")
+                
         except ImportError as import_error:
             debug_info["imports"]["blob_storage_client"] = f"FAILED - {str(import_error)}"
             debug_info["diagnosis"].append(f"❌ BlobStorageClient import failed: {str(import_error)}")
