@@ -55,6 +55,24 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
 
         if connection_string:
             debug_info["diagnosis"].append("✅ Connection string configured")
+            
+            # Parse connection string to debug the issue
+            debug_info["connection_string_debug"] = {}
+            parts = connection_string.split(';')
+            for part in parts:
+                part = part.strip()
+                if '=' in part:
+                    key, value = part.split('=', 1)
+                    key = key.strip()
+                    value = value.strip()
+                    # Hide sensitive data but show structure
+                    if key == 'AccountKey':
+                        debug_info["connection_string_debug"][key] = f"{value[:10]}...({len(value)} chars)"
+                    else:
+                        debug_info["connection_string_debug"][key] = value
+                        
+            debug_info["diagnosis"].append(f"🔍 Connection string parts: {list(debug_info['connection_string_debug'].keys())}")
+            
         elif account_name and account_key:
             debug_info["diagnosis"].append("✅ Account name and key configured")
         else:
