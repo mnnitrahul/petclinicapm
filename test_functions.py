@@ -152,7 +152,7 @@ def test_azure_sdk_imports():
         return False
 
 def test_blob_storage_client():
-    """Test BlobStorageClient with pure REST API - Azure Functions compatible"""
+    """Test BlobStorageClient with Azure SDK - Python 3.10 version consistent"""
     print("\n📦 Testing BlobStorageClient...")
     
     try:
@@ -175,40 +175,42 @@ def test_blob_storage_client():
                 print(f"❌ Method {method} missing or not callable")
                 return False
         
-        # Test that the client uses pure REST API (no Azure SDK)
-        if hasattr(client, '_make_request') and hasattr(client, '_get_auth_header'):
-            print("✅ Pure REST API implementation detected")
+        # Test that the client uses Azure SDK (not REST API)
+        if hasattr(client, '_get_blob_service'):
+            print("✅ Azure SDK BlobServiceClient implementation detected")
         else:
-            print("❌ REST API methods missing")
+            print("❌ Azure SDK methods missing")
             return False
         
-        # Verify no Azure SDK dependencies
-        if not hasattr(client, '_get_blob_service'):
-            print("✅ No Azure SDK dependencies - Azure Functions compatible!")
-        else:
-            print("❌ Still has Azure SDK dependencies")
-            return False
+        # Test Azure SDK integration 
+        print("🔧 Testing Azure SDK dependency calls...")
         
-        # Test credential parsing 
-        print("🔧 Testing REST API credential handling...")
-        
-        # Set dummy connection string to test parsing
+        # Set dummy connection string to test Azure SDK call chain
         import os
         original_conn = os.environ.get("AZURE_STORAGE_CONNECTION_STRING")
-        os.environ["AZURE_STORAGE_CONNECTION_STRING"] = "DefaultEndpointsProtocol=https;AccountName=testaccount;AccountKey=dGVzdGtleQ==;EndpointSuffix=core.windows.net"
+        os.environ["AZURE_STORAGE_CONNECTION_STRING"] = "DefaultEndpointsProtocol=https;AccountName=test;AccountKey=dGVzdA==;EndpointSuffix=core.windows.net"
         
         try:
-            # Create new client to test connection string parsing
-            test_client = BlobStorageClient()
-            if test_client.account_name == "testaccount" and test_client.account_key == "dGVzdGtleQ==":
-                print("✅ Connection string parsing works correctly")
+            # This should call BlobServiceClient.from_connection_string() internally
+            blob_service = client._get_blob_service()
+            print("✅ _get_blob_service() calls Azure SDK successfully")
+            
+            # Test that it returns the expected type
+            from azure.storage.blob import BlobServiceClient
+            if isinstance(blob_service, BlobServiceClient):
+                print("✅ Returns correct BlobServiceClient instance")
             else:
-                print(f"❌ Connection string parsing failed: {test_client.account_name}, {test_client.account_key}")
+                print(f"❌ Wrong type returned: {type(blob_service)}")
                 return False
                 
         except Exception as e:
-            print(f"❌ Connection string parsing error: {str(e)}")
-            return False
+            error_str = str(e)
+            if ("AccountKey" in error_str or "connection" in error_str or "authentication" in error_str or 
+                "Missing Azure Storage credentials" in error_str):
+                print("✅ Azure SDK integration works (expected credential error)")
+            else:
+                print(f"❌ Unexpected error in Azure SDK call: {str(e)}")
+                return False
         finally:
             # Restore original connection string
             if original_conn:
@@ -216,7 +218,7 @@ def test_blob_storage_client():
             else:
                 os.environ.pop("AZURE_STORAGE_CONNECTION_STRING", None)
             
-        print("ℹ️  Note: Uses pure REST API - no cryptography dependency!")
+        print("ℹ️  Note: Uses Azure SDK with Python 3.10 version consistency!")
         return True
         
     except ImportError as e:

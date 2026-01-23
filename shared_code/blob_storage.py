@@ -1,23 +1,19 @@
 """
-Azure Blob Storage client using pure HTTP REST API
-Azure Functions compatible - NO cryptography dependency issues
+Azure Blob Storage client using modern azure-storage-blob SDK
+Python 3.10 compatible - matches Azure Functions runtime version
 """
 import os
 import logging
 import json
-import hashlib
-import hmac
-import base64
-import urllib.parse
-from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
-import requests
+from azure.storage.blob import BlobServiceClient
 
 
 class BlobStorageClient:
     """
-    Pure REST API implementation - No Azure SDK dependencies
-    Azure Functions compatible - avoids cryptography library issues
+    Modern Azure Storage implementation using BlobServiceClient
+    Lazy initialization to avoid cold start issues in Azure Functions
+    Python 3.10 compatible
     """
     
     def __init__(self):
@@ -28,81 +24,41 @@ class BlobStorageClient:
         self.account_key = os.environ.get("AZURE_STORAGE_ACCOUNT_KEY")
         self.container_name = os.environ.get("BLOB_CONTAINER_NAME", "pets")
         
-        # Parse connection string if provided
-        if self.connection_string:
-            self._parse_connection_string()
-        
-        # Lazy initialization flag
+        # Lazy initialization - clients created only when needed
+        self._blob_service = None
         self._container_initialized = False
         
-    def _parse_connection_string(self):
-        """Parse Azure Storage connection string to extract account name and key"""
-        parts = {}
-        for part in self.connection_string.split(';'):
-            if '=' in part:
-                key, value = part.split('=', 1)
-                parts[key] = value
-        
-        self.account_name = parts.get('AccountName')
-        self.account_key = parts.get('AccountKey')
-        
-    def _get_auth_header(self, method: str, url_path: str, content_length: int = 0, content_type: str = '', date_header: str = '') -> str:
-        """Generate Authorization header for Azure Storage requests"""
-        if not self.account_name or not self.account_key:
-            raise ValueError("Missing Azure Storage credentials")
-        
-        # Construct string to sign
-        string_to_sign = f"{method}\n\n\n{content_length}\n\n{content_type}\n\n\n\n\n\n\nx-ms-date:{date_header}\nx-ms-version:2020-04-08\n/{self.account_name}{url_path}"
-        
-        # Sign the string
-        key = base64.b64decode(self.account_key)
-        signed_string = hmac.new(key, string_to_sign.encode('utf-8'), hashlib.sha256).digest()
-        signature = base64.b64encode(signed_string).decode('utf-8')
-        
-        return f"SharedKey {self.account_name}:{signature}"
-    
-    def _make_request(self, method: str, url_path: str, data: bytes = None, headers: Dict[str, str] = None) -> requests.Response:
-        """Make HTTP request to Azure Storage REST API"""
-        base_url = f"https://{self.account_name}.blob.core.windows.net"
-        url = base_url + url_path
-        
-        # Default headers
-        req_headers = {
-            'x-ms-version': '2020-04-08',
-            'x-ms-date': datetime.now(timezone.utc).strftime('%a, %d %b %Y %H:%M:%S GMT')
-        }
-        
-        if headers:
-            req_headers.update(headers)
-        
-        # Add content length
-        content_length = len(data) if data else 0
-        if content_length > 0:
-            req_headers['Content-Length'] = str(content_length)
-        
-        # Generate auth header
-        content_type = req_headers.get('Content-Type', '')
-        auth_header = self._get_auth_header(method, url_path, content_length, content_type, req_headers['x-ms-date'])
-        req_headers['Authorization'] = auth_header
-        
-        # Make request
-        response = requests.request(method, url, data=data, headers=req_headers, timeout=30)
-        return response
+    def _get_blob_service(self):
+        """Lazy initialization of BlobServiceClient"""
+        if self._blob_service is None:
+            if self.connection_string:
+                # Use connection string directly with modern BlobServiceClient
+                self._blob_service = BlobServiceClient.from_connection_string(self.connection_string)
+            elif self.account_name and self.account_key:
+                account_url = f"https://{self.account_name}.blob.core.windows.net"
+                from azure.storage.blob import BlobServiceClient
+                from azure.core.credentials import AzureKeyCredential
+                # Create credential object for the modern SDK
+                credential = AzureKeyCredential(self.account_key) 
+                self._blob_service = BlobServiceClient(account_url=account_url, credential=credential)
+            else:
+                raise ValueError("Missing Azure Storage credentials: need AZURE_STORAGE_CONNECTION_STRING or (AZURE_STORAGE_ACCOUNT_NAME + AZURE_STORAGE_ACCOUNT_KEY)")
+        return self._blob_service
     
     def _ensure_container_exists(self):
         """Ensure container exists - only called when first operation happens"""
         if not self._container_initialized:
             try:
-                # Try to create container using REST API
-                url_path = f"/{self.container_name}?restype=container"
-                response = self._make_request('PUT', url_path)
-                
-                if response.status_code in [201, 409]:  # Created or already exists
-                    logging.info(f"Container '{self.container_name}' ready")
-                else:
-                    logging.error(f"Failed to create container: {response.status_code} {response.text}")
-                    response.raise_for_status()
-                    
+                blob_service = self._get_blob_service()
+                # Create container if it doesn't exist using modern API
+                try:
+                    blob_service.create_container(self.container_name)
+                    logging.info(f"Created container '{self.container_name}'")
+                except Exception as e:
+                    if "ContainerAlreadyExists" in str(e):
+                        logging.info(f"Container '{self.container_name}' already exists")
+                    else:
+                        raise
             except Exception as e:
                 logging.error(f"Failed to create/verify container: {str(e)}")
                 raise
@@ -120,28 +76,23 @@ class BlobStorageClient:
             
             # Convert pet data to JSON
             pet_json = json.dumps(pet_data, indent=2)
-            data = pet_json.encode('utf-8')
             
-            # Upload blob using REST API
-            url_path = f"/{self.container_name}/{blob_name}"
-            headers = {
-                'Content-Type': 'application/json',
-                'x-ms-blob-type': 'BlockBlob',
-                'x-ms-meta-pet_name': pet_data.get('name', ''),
-                'x-ms-meta-species': pet_data.get('species', ''),
-                'x-ms-meta-breed': pet_data.get('breed', ''),
-                'x-ms-meta-owner_name': pet_data.get('owner_name', ''),
-                'x-ms-meta-created_at': pet_data.get('created_at', '')
+            # Upload as blob with metadata for searching
+            metadata = {
+                'pet_name': pet_data.get('name', ''),
+                'species': pet_data.get('species', ''),
+                'breed': pet_data.get('breed', ''),
+                'owner_name': pet_data.get('owner_name', ''),
+                'created_at': pet_data.get('created_at', '')
             }
             
-            response = self._make_request('PUT', url_path, data, headers)
+            # Upload blob using modern BlobServiceClient API
+            blob_service = self._get_blob_service()
+            blob_client = blob_service.get_blob_client(container=self.container_name, blob=blob_name)
+            blob_client.upload_blob(pet_json, overwrite=True, metadata=metadata)
             
-            if response.status_code == 201:
-                logging.info(f"Successfully created pet with ID: {pet_id}")
-                return pet_data
-            else:
-                logging.error(f"Failed to create pet: {response.status_code} {response.text}")
-                response.raise_for_status()
+            logging.info(f"Successfully created pet with ID: {pet_id}")
+            return pet_data
             
         except Exception as e:
             logging.error(f"Failed to create pet: {str(e)}")
@@ -154,20 +105,23 @@ class BlobStorageClient:
             self._ensure_container_exists()
             
             blob_name = f"{pet_id}.json"
-            url_path = f"/{self.container_name}/{blob_name}"
+            blob_service = self._get_blob_service()
+            blob_client = blob_service.get_blob_client(container=self.container_name, blob=blob_name)
             
-            response = self._make_request('GET', url_path)
-            
-            if response.status_code == 200:
-                pet_data = response.json()
+            # Download blob content using modern BlobServiceClient API
+            try:
+                blob_data = blob_client.download_blob()
+                pet_json = blob_data.readall().decode('utf-8')
+                pet_data = json.loads(pet_json)
+                
                 logging.info(f"Retrieved pet with ID: {pet_id}")
                 return pet_data
-            elif response.status_code == 404:
-                logging.warning(f"Pet with ID {pet_id} not found")
-                return None
-            else:
-                logging.error(f"Failed to get pet: {response.status_code} {response.text}")
-                response.raise_for_status()
+            except Exception as e:
+                if "BlobNotFound" in str(e):
+                    logging.warning(f"Pet with ID {pet_id} not found")
+                    return None
+                else:
+                    raise
             
         except Exception as e:
             logging.error(f"Failed to get pet {pet_id}: {str(e)}")
@@ -179,35 +133,30 @@ class BlobStorageClient:
             # Ensure container exists before first operation
             self._ensure_container_exists()
             
-            # List blobs using REST API
-            url_path = f"/{self.container_name}?restype=container&comp=list&include=metadata"
-            response = self._make_request('GET', url_path)
-            
-            if response.status_code != 200:
-                logging.error(f"Failed to list blobs: {response.status_code} {response.text}")
-                response.raise_for_status()
-            
             pets = []
-            # Parse XML response (simplified - would need proper XML parsing for production)
-            import xml.etree.ElementTree as ET
-            root = ET.fromstring(response.text)
+            blob_service = self._get_blob_service()
+            container_client = blob_service.get_container_client(self.container_name)
+            
+            # List blobs using modern BlobServiceClient API
+            blob_list = container_client.list_blobs(include=['metadata'])
             
             count = 0
-            for blob in root.findall('.//Blob'):
+            for blob in blob_list:
                 if count >= limit:
                     break
                     
-                name_elem = blob.find('Name')
-                if name_elem is not None and name_elem.text.endswith('.json'):
-                    try:
-                        # Download each pet blob
-                        pet_data = self.get_pet_by_id(name_elem.text.replace('.json', ''))
-                        if pet_data:
-                            pets.append(pet_data)
-                            count += 1
-                    except Exception as e:
-                        logging.warning(f"Failed to read pet blob {name_elem.text}: {str(e)}")
-                        continue
+                try:
+                    # Download each pet blob using modern API
+                    blob_client = blob_service.get_blob_client(container=self.container_name, blob=blob.name)
+                    blob_data = blob_client.download_blob()
+                    pet_json = blob_data.readall().decode('utf-8')
+                    pet_data = json.loads(pet_json)
+                    pets.append(pet_data)
+                    count += 1
+                    
+                except Exception as e:
+                    logging.warning(f"Failed to read pet blob {blob.name}: {str(e)}")
+                    continue
             
             # Sort by created_at descending
             pets.sort(key=lambda x: x.get('created_at', ''), reverse=True)
@@ -226,19 +175,20 @@ class BlobStorageClient:
             self._ensure_container_exists()
             
             blob_name = f"{pet_id}.json"
-            url_path = f"/{self.container_name}/{blob_name}"
+            blob_service = self._get_blob_service()
+            blob_client = blob_service.get_blob_client(container=self.container_name, blob=blob_name)
             
-            response = self._make_request('DELETE', url_path)
-            
-            if response.status_code == 202:
+            # Check if blob exists and delete using modern BlobServiceClient API
+            try:
+                blob_client.delete_blob()
                 logging.info(f"Deleted pet with ID: {pet_id}")
                 return True
-            elif response.status_code == 404:
-                logging.warning(f"Pet with ID {pet_id} not found")
-                return False
-            else:
-                logging.error(f"Failed to delete pet: {response.status_code} {response.text}")
-                response.raise_for_status()
+            except Exception as e:
+                if "BlobNotFound" in str(e):
+                    logging.warning(f"Pet with ID {pet_id} not found")
+                    return False
+                else:
+                    raise
             
         except Exception as e:
             logging.error(f"Failed to delete pet {pet_id}: {str(e)}")
@@ -250,9 +200,26 @@ class BlobStorageClient:
             # Ensure container exists before first operation
             self._ensure_container_exists()
             
-            # Get all pets and filter by species
-            all_pets = self.get_all_pets()
-            pets = [pet for pet in all_pets if pet.get('species', '').lower() == species.lower()]
+            pets = []
+            blob_service = self._get_blob_service()
+            container_client = blob_service.get_container_client(self.container_name)
+            
+            # List blobs with metadata using modern BlobServiceClient API
+            blob_list = container_client.list_blobs(include=['metadata'])
+            
+            for blob in blob_list:
+                # Check metadata first for efficiency
+                if blob.metadata and blob.metadata.get('species', '').lower() == species.lower():
+                    try:
+                        # Download each pet blob using modern API
+                        blob_client = blob_service.get_blob_client(container=self.container_name, blob=blob.name)
+                        blob_data = blob_client.download_blob()
+                        pet_json = blob_data.readall().decode('utf-8')
+                        pet_data = json.loads(pet_json)
+                        pets.append(pet_data)
+                    except Exception as e:
+                        logging.warning(f"Failed to read pet blob {blob.name}: {str(e)}")
+                        continue
             
             logging.info(f"Retrieved {len(pets)} pets of species {species}")
             return pets
