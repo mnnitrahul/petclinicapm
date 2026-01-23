@@ -33,16 +33,30 @@ if _connection_string:
         })
         
         # Configure Azure Monitor with OpenTelemetry
-        # This automatically instruments Azure SDK (Blob Storage, Cosmos DB) and HTTP requests
+        # Enable all Azure SDK instrumentations including Cosmos DB
         configure_azure_monitor(
             resource=resource,
             enable_live_metrics=True,
             instrumentation_options={
-                "azure_sdk": {"enabled": True},
+                "azure_sdk": {
+                    "enabled": True,
+                },
                 "requests": {"enabled": True},
                 "urllib3": {"enabled": True},
+                "urllib": {"enabled": True},
             }
         )
+        
+        # Additionally, manually instrument Azure SDK for better Cosmos DB tracking
+        try:
+            from azure.core.tracing.ext.opentelemetry_span import OpenTelemetrySpan
+            from azure.core.settings import settings
+            settings.tracing_implementation = OpenTelemetrySpan
+            logging.info("✅ Azure Core OpenTelemetry tracing enabled for Cosmos DB")
+        except ImportError:
+            logging.warning("⚠️ Azure Core OpenTelemetry tracing not available")
+        except Exception as e:
+            logging.warning(f"⚠️ Azure Core tracing configuration failed: {e}")
         
         logging.info(f"✅ OpenTelemetry configured for service: {service_name}")
         logging.info("📊 Tracking: Azure SDK (Blob Storage, Cosmos DB) + HTTP requests")
