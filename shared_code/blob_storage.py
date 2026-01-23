@@ -72,19 +72,36 @@ class BlobStorageClient:
         headers['x-ms-date'] = date_str
         headers['x-ms-version'] = '2020-10-02'
         
-        # Canonical headers
+        # Get standard headers with defaults
+        content_encoding = headers.get('Content-Encoding', '')
+        content_language = headers.get('Content-Language', '')
+        content_length = headers.get('Content-Length', '')
+        content_md5 = headers.get('Content-MD5', '')
+        content_type = headers.get('Content-Type', '')
+        date = headers.get('Date', '')  # We use x-ms-date instead
+        if_modified_since = headers.get('If-Modified-Since', '')
+        if_match = headers.get('If-Match', '')
+        if_none_match = headers.get('If-None-Match', '')
+        if_unmodified_since = headers.get('If-Unmodified-Since', '')
+        range_header = headers.get('Range', '')
+        
+        # Canonical headers (x-ms- headers sorted)
         canonical_headers = ""
-        for header_name in sorted(headers.keys()):
+        ms_headers = {}
+        for header_name in headers.keys():
             if header_name.lower().startswith('x-ms-'):
-                canonical_headers += f"{header_name.lower()}:{headers[header_name]}\n"
+                ms_headers[header_name.lower()] = headers[header_name]
+        
+        for header_name in sorted(ms_headers.keys()):
+            canonical_headers += f"{header_name}:{ms_headers[header_name]}\n"
         
         # Canonical resource
         canonical_resource = f"/{self.account_name}{url_path}"
         
-        # String to sign
-        string_to_sign = f"{method}\n\n\n\n\n\n\n\n\n\n\n\n{canonical_headers}{canonical_resource}"
+        # String to sign (Azure Storage format)
+        string_to_sign = f"{method}\n{content_encoding}\n{content_language}\n{content_length}\n{content_md5}\n{content_type}\n{date}\n{if_modified_since}\n{if_match}\n{if_none_match}\n{if_unmodified_since}\n{range_header}\n{canonical_headers}{canonical_resource}"
         
-        # Generate signature
+        # Generate signature using SHA256
         signature = base64.b64encode(
             hmac.new(
                 base64.b64decode(self.account_key),
