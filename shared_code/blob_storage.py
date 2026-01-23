@@ -12,84 +12,63 @@ from azure.core.exceptions import ResourceExistsError, ResourceNotFoundError
 
 class BlobStorageClient:
     """
-    Azure SDK implementation - proper and secure
-    Uses official azure.storage.blob.BlobServiceClient
+    Azure SDK implementation - Azure Functions compatible
+    Uses lazy initialization to avoid cold start failures
     """
     
     def __init__(self):
-        logging.info("=== Azure SDK BlobStorageClient initialization START ===")
+        # NO logging, NO network calls, NO Azure SDK calls in __init__
+        # Store configuration only
+        self.connection_string = os.environ.get("AZURE_STORAGE_CONNECTION_STRING")
+        self.account_name = os.environ.get("AZURE_STORAGE_ACCOUNT_NAME") 
+        self.account_key = os.environ.get("AZURE_STORAGE_ACCOUNT_KEY")
+        self.container_name = os.environ.get("BLOB_CONTAINER_NAME", "pets")
         
-        try:
-            # Get environment variables
-            self.connection_string = os.environ.get("AZURE_STORAGE_CONNECTION_STRING")
-            self.account_name = os.environ.get("AZURE_STORAGE_ACCOUNT_NAME")
-            self.account_key = os.environ.get("AZURE_STORAGE_ACCOUNT_KEY")
-            self.container_name = os.environ.get("BLOB_CONTAINER_NAME", "pets")
-            
-            # Log environment variable status (without exposing sensitive data)
-            logging.info(f"AZURE_STORAGE_CONNECTION_STRING present: {bool(self.connection_string)}")
-            logging.info(f"Connection string length: {len(self.connection_string) if self.connection_string else 0}")
-            logging.info(f"AZURE_STORAGE_ACCOUNT_NAME present: {bool(self.account_name)}")
-            logging.info(f"AZURE_STORAGE_ACCOUNT_KEY present: {bool(self.account_key)}")
-            logging.info(f"BLOB_CONTAINER_NAME: {self.container_name}")
-            
-            # Initialize blob service client using Azure SDK
+        # Lazy initialization - clients created only when needed
+        self._blob_service_client = None
+        self._container_client = None
+        self._container_initialized = False
+        
+    def _get_blob_service_client(self):
+        """Lazy initialization of blob service client"""
+        if self._blob_service_client is None:
             if self.connection_string:
-                # Preferred method: connection string
-                logging.info("Using connection string for Blob Storage authentication")
-                try:
-                    self.blob_service_client = BlobServiceClient.from_connection_string(self.connection_string)
-                    logging.info("✅ BlobServiceClient created successfully from connection string")
-                except Exception as e:
-                    logging.error(f"❌ Failed to create BlobServiceClient from connection string: {str(e)}")
-                    logging.error(f"❌ Connection string format: {self.connection_string[:50]}...")
-                    raise ValueError(f"Failed to create BlobServiceClient: {str(e)}")
+                self._blob_service_client = BlobServiceClient.from_connection_string(self.connection_string)
             elif self.account_name and self.account_key:
-                # Alternative method: account name + key
-                logging.info("Using account name and key for Blob Storage authentication")
-                try:
-                    account_url = f"https://{self.account_name}.blob.core.windows.net"
-                    self.blob_service_client = BlobServiceClient(account_url=account_url, credential=self.account_key)
-                    logging.info("✅ BlobServiceClient created successfully from account name/key")
-                except Exception as e:
-                    logging.error(f"❌ Failed to create BlobServiceClient from account name/key: {str(e)}")
-                    raise ValueError(f"Failed to create BlobServiceClient: {str(e)}")
+                account_url = f"https://{self.account_name}.blob.core.windows.net"
+                self._blob_service_client = BlobServiceClient(account_url=account_url, credential=self.account_key)
             else:
-                error_msg = "Missing required Blob Storage environment variables!"
-                logging.error(f"❌ {error_msg}")
-                logging.error("❌ Required: AZURE_STORAGE_CONNECTION_STRING or (AZURE_STORAGE_ACCOUNT_NAME + AZURE_STORAGE_ACCOUNT_KEY)")
-                raise ValueError("Either AZURE_STORAGE_CONNECTION_STRING or both AZURE_STORAGE_ACCOUNT_NAME and AZURE_STORAGE_ACCOUNT_KEY are required")
-            
-            # Initialize container
-            self.container_client = None
-            self._initialize_container()
-            logging.info("=== Azure SDK BlobStorageClient initialization COMPLETE ===")
-            
-        except Exception as e:
-            logging.error(f"💥 CRITICAL ERROR in BlobStorageClient.__init__: {str(e)}")
-            logging.error(f"💥 Error type: {type(e).__name__}")
-            raise
-        
-    def _initialize_container(self):
-        """Initialize blob container if it doesn't exist"""
-        try:
-            # Get or create container
-            self.container_client = self.blob_service_client.get_container_client(self.container_name)
-            
-            # Create container if it doesn't exist
+                raise ValueError("Missing Azure Storage credentials: need AZURE_STORAGE_CONNECTION_STRING or (AZURE_STORAGE_ACCOUNT_NAME + AZURE_STORAGE_ACCOUNT_KEY)")
+        return self._blob_service_client
+    
+    def _get_container_client(self):
+        """Lazy initialization of container client"""
+        if self._container_client is None:
+            blob_service_client = self._get_blob_service_client()
+            self._container_client = blob_service_client.get_container_client(self.container_name)
+        return self._container_client
+    
+    def _ensure_container_exists(self):
+        """Ensure container exists - only called when first operation happens"""
+        if not self._container_initialized:
             try:
-                self.container_client.create_container()
+                container_client = self._get_container_client()
+                container_client.create_container()
                 logging.info(f"Created new container: {self.container_name}")
             except ResourceExistsError:
                 logging.info(f"Container already exists: {self.container_name}")
-                
-        except Exception as e:
-            logging.error(f"Failed to initialize blob container: {str(e)}")
-            raise
+            except Exception as e:
+                logging.error(f"Failed to create/verify container: {str(e)}")
+                raise
+            finally:
+                self._container_initialized = True
 
     def create_pet(self, pet_data: Dict[str, Any]) -> Dict[str, Any]:
         """Create a new pet by uploading JSON blob"""
         try:
+            # Ensure container exists before first operation
+            self._ensure_container_exists()
+            
             pet_id = pet_data['id']
             blob_name = f"{pet_id}.json"
             
@@ -105,8 +84,9 @@ class BlobStorageClient:
                 'created_at': pet_data.get('created_at', '')
             }
             
-            # Upload blob using Azure SDK
-            blob_client = self.container_client.get_blob_client(blob_name)
+            # Upload blob using lazy initialized container client
+            container_client = self._get_container_client()
+            blob_client = container_client.get_blob_client(blob_name)
             blob_client.upload_blob(pet_json, overwrite=True, metadata=metadata)
             
             logging.info(f"Successfully created pet with ID: {pet_id}")
@@ -119,8 +99,12 @@ class BlobStorageClient:
     def get_pet_by_id(self, pet_id: str) -> Optional[Dict[str, Any]]:
         """Get a single pet by ID"""
         try:
+            # Ensure container exists before first operation
+            self._ensure_container_exists()
+            
             blob_name = f"{pet_id}.json"
-            blob_client = self.container_client.get_blob_client(blob_name)
+            container_client = self._get_container_client()
+            blob_client = container_client.get_blob_client(blob_name)
             
             # Download blob content using Azure SDK
             blob_data = blob_client.download_blob().readall()
@@ -139,8 +123,12 @@ class BlobStorageClient:
     def get_all_pets(self, limit: int = 100) -> List[Dict[str, Any]]:
         """Get all pets with optional limit"""
         try:
+            # Ensure container exists before first operation
+            self._ensure_container_exists()
+            
             pets = []
-            blob_list = self.container_client.list_blobs(name_starts_with="", include=['metadata'])
+            container_client = self._get_container_client()
+            blob_list = container_client.list_blobs(name_starts_with="", include=['metadata'])
             
             count = 0
             for blob in blob_list:
@@ -149,7 +137,7 @@ class BlobStorageClient:
                     
                 try:
                     # Download each pet blob using Azure SDK
-                    blob_client = self.container_client.get_blob_client(blob.name)
+                    blob_client = container_client.get_blob_client(blob.name)
                     blob_data = blob_client.download_blob().readall()
                     pet_data = json.loads(blob_data.decode('utf-8'))
                     pets.append(pet_data)
@@ -172,8 +160,12 @@ class BlobStorageClient:
     def delete_pet(self, pet_id: str) -> bool:
         """Delete a pet"""
         try:
+            # Ensure container exists before first operation
+            self._ensure_container_exists()
+            
             blob_name = f"{pet_id}.json"
-            blob_client = self.container_client.get_blob_client(blob_name)
+            container_client = self._get_container_client()
+            blob_client = container_client.get_blob_client(blob_name)
             
             # Delete the blob using Azure SDK
             blob_client.delete_blob()
@@ -191,14 +183,18 @@ class BlobStorageClient:
     def get_pets_by_species(self, species: str) -> List[Dict[str, Any]]:
         """Get all pets of a specific species"""
         try:
+            # Ensure container exists before first operation
+            self._ensure_container_exists()
+            
             pets = []
-            blob_list = self.container_client.list_blobs(name_starts_with="", include=['metadata'])
+            container_client = self._get_container_client()
+            blob_list = container_client.list_blobs(name_starts_with="", include=['metadata'])
             
             for blob in blob_list:
                 # Check metadata first for efficiency
                 if blob.metadata and blob.metadata.get('species', '').lower() == species.lower():
                     try:
-                        blob_client = self.container_client.get_blob_client(blob.name)
+                        blob_client = container_client.get_blob_client(blob.name)
                         blob_data = blob_client.download_blob().readall()
                         pet_data = json.loads(blob_data.decode('utf-8'))
                         pets.append(pet_data)
