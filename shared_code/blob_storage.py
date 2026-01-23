@@ -1,13 +1,12 @@
 """
-Azure Blob Storage client using legacy azure-storage package
-No cffi dependency - Azure Functions compatible
+Azure Blob Storage client using older azure-storage-blob==2.1.0
+Hopefully no cffi dependency - Azure Functions compatible
 """
 import os
 import logging
 import json
 from typing import Optional, Dict, Any, List
 from azure.storage.blob import BlockBlobService
-from azure.storage.common import CloudStorageAccount
 
 
 class BlobStorageClient:
@@ -32,10 +31,8 @@ class BlobStorageClient:
         """Lazy initialization of BlockBlobService"""
         if self._blob_service is None:
             if self.connection_string:
-                # Parse connection string to get account name and key
-                account = CloudStorageAccount(is_emulated=False)
-                account = account.create_from_connection_string(self.connection_string)
-                self._blob_service = account.create_block_blob_service()
+                # Use connection string directly with older BlockBlobService
+                self._blob_service = BlockBlobService(connection_string=self.connection_string)
             elif self.account_name and self.account_key:
                 self._blob_service = BlockBlobService(account_name=self.account_name, account_key=self.account_key)
             else:
