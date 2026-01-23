@@ -19,36 +19,56 @@ class BlobStorageClient:
     def __init__(self):
         logging.info("=== Azure SDK BlobStorageClient initialization START ===")
         
-        # Get environment variables
-        self.connection_string = os.environ.get("AZURE_STORAGE_CONNECTION_STRING")
-        self.account_name = os.environ.get("AZURE_STORAGE_ACCOUNT_NAME")
-        self.account_key = os.environ.get("AZURE_STORAGE_ACCOUNT_KEY")
-        self.container_name = os.environ.get("BLOB_CONTAINER_NAME", "pets")
-        
-        # Log environment variable status (without exposing sensitive data)
-        logging.info(f"AZURE_STORAGE_CONNECTION_STRING present: {bool(self.connection_string)}")
-        logging.info(f"AZURE_STORAGE_ACCOUNT_NAME present: {bool(self.account_name)}")
-        logging.info(f"AZURE_STORAGE_ACCOUNT_KEY present: {bool(self.account_key)}")
-        logging.info(f"BLOB_CONTAINER_NAME: {self.container_name}")
-        
-        # Initialize blob service client using Azure SDK
-        if self.connection_string:
-            # Preferred method: connection string
-            logging.info("Using connection string for Blob Storage authentication")
-            self.blob_service_client = BlobServiceClient.from_connection_string(self.connection_string)
-        elif self.account_name and self.account_key:
-            # Alternative method: account name + key
-            logging.info("Using account name and key for Blob Storage authentication")
-            account_url = f"https://{self.account_name}.blob.core.windows.net"
-            self.blob_service_client = BlobServiceClient(account_url=account_url, credential=self.account_key)
-        else:
-            logging.error("Missing required Blob Storage environment variables!")
-            raise ValueError("Either AZURE_STORAGE_CONNECTION_STRING or both AZURE_STORAGE_ACCOUNT_NAME and AZURE_STORAGE_ACCOUNT_KEY are required")
-        
-        # Initialize container
-        self.container_client = None
-        self._initialize_container()
-        logging.info("=== Azure SDK BlobStorageClient initialization COMPLETE ===")
+        try:
+            # Get environment variables
+            self.connection_string = os.environ.get("AZURE_STORAGE_CONNECTION_STRING")
+            self.account_name = os.environ.get("AZURE_STORAGE_ACCOUNT_NAME")
+            self.account_key = os.environ.get("AZURE_STORAGE_ACCOUNT_KEY")
+            self.container_name = os.environ.get("BLOB_CONTAINER_NAME", "pets")
+            
+            # Log environment variable status (without exposing sensitive data)
+            logging.info(f"AZURE_STORAGE_CONNECTION_STRING present: {bool(self.connection_string)}")
+            logging.info(f"Connection string length: {len(self.connection_string) if self.connection_string else 0}")
+            logging.info(f"AZURE_STORAGE_ACCOUNT_NAME present: {bool(self.account_name)}")
+            logging.info(f"AZURE_STORAGE_ACCOUNT_KEY present: {bool(self.account_key)}")
+            logging.info(f"BLOB_CONTAINER_NAME: {self.container_name}")
+            
+            # Initialize blob service client using Azure SDK
+            if self.connection_string:
+                # Preferred method: connection string
+                logging.info("Using connection string for Blob Storage authentication")
+                try:
+                    self.blob_service_client = BlobServiceClient.from_connection_string(self.connection_string)
+                    logging.info("✅ BlobServiceClient created successfully from connection string")
+                except Exception as e:
+                    logging.error(f"❌ Failed to create BlobServiceClient from connection string: {str(e)}")
+                    logging.error(f"❌ Connection string format: {self.connection_string[:50]}...")
+                    raise ValueError(f"Failed to create BlobServiceClient: {str(e)}")
+            elif self.account_name and self.account_key:
+                # Alternative method: account name + key
+                logging.info("Using account name and key for Blob Storage authentication")
+                try:
+                    account_url = f"https://{self.account_name}.blob.core.windows.net"
+                    self.blob_service_client = BlobServiceClient(account_url=account_url, credential=self.account_key)
+                    logging.info("✅ BlobServiceClient created successfully from account name/key")
+                except Exception as e:
+                    logging.error(f"❌ Failed to create BlobServiceClient from account name/key: {str(e)}")
+                    raise ValueError(f"Failed to create BlobServiceClient: {str(e)}")
+            else:
+                error_msg = "Missing required Blob Storage environment variables!"
+                logging.error(f"❌ {error_msg}")
+                logging.error("❌ Required: AZURE_STORAGE_CONNECTION_STRING or (AZURE_STORAGE_ACCOUNT_NAME + AZURE_STORAGE_ACCOUNT_KEY)")
+                raise ValueError("Either AZURE_STORAGE_CONNECTION_STRING or both AZURE_STORAGE_ACCOUNT_NAME and AZURE_STORAGE_ACCOUNT_KEY are required")
+            
+            # Initialize container
+            self.container_client = None
+            self._initialize_container()
+            logging.info("=== Azure SDK BlobStorageClient initialization COMPLETE ===")
+            
+        except Exception as e:
+            logging.error(f"💥 CRITICAL ERROR in BlobStorageClient.__init__: {str(e)}")
+            logging.error(f"💥 Error type: {type(e).__name__}")
+            raise
         
     def _initialize_container(self):
         """Initialize blob container if it doesn't exist"""

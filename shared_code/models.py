@@ -29,14 +29,16 @@ def create_appointment_data(request_data, appointment_id, timestamp):
         "updated_at": timestamp
     }
 
-def create_success_response(message, data=None):
+def create_success_response(message, data=None, count=None):
     """Create success response"""
     response = {
         "success": True,
         "message": message
     }
-    if data:
+    if data is not None:
         response["data"] = data
+    if count is not None:
+        response["count"] = count
     return response
 
 def create_error_response(message):
