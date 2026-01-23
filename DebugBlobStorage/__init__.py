@@ -90,7 +90,13 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
 
         # Test 4: Test BlobStorageClient class
         try:
-            from shared_code.blob_storage import BlobStorageClient
+            try:
+                from shared_code.blob_storage import BlobStorageClient
+            except ImportError:
+                import sys
+                import os
+                sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+                from shared_code.blob_storage import BlobStorageClient
             debug_info["imports"]["blob_storage_client"] = "SUCCESS"
             debug_info["diagnosis"].append("✅ BlobStorageClient import successful")
             
