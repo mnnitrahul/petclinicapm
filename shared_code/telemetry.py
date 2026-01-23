@@ -1,8 +1,8 @@
 """
 OpenTelemetry configuration for Azure Monitor dependency tracking.
 Import this module once to enable automatic instrumentation of:
-- Azure SDK calls (Blob Storage, Cosmos DB)
-- HTTP requests
+- Azure SDK calls (Blob Storage)
+- HTTP requests (except Cosmos DB which has manual tracing)
 - Application Insights integration
 
 Usage: Simply import this module at the top of your Azure Function:
@@ -23,6 +23,10 @@ if _connection_string:
         # Azure Functions provides WEBSITE_SITE_NAME which is the function app name
         service_name = os.environ.get("WEBSITE_SITE_NAME", "petclinic-apm-function-app")
         
+        # Get Cosmos DB endpoint to exclude from HTTP auto-tracking
+        cosmos_endpoint = os.environ.get("COSMOS_DB_ENDPOINT", "")
+        cosmos_host = cosmos_endpoint.replace("https://", "").replace(":443/", "").replace("/", "") if cosmos_endpoint else ""
+        
         # Create a resource with proper service identification (no namespace prefix)
         resource = Resource.create({
             SERVICE_NAME: service_name,
@@ -33,7 +37,8 @@ if _connection_string:
         })
         
         # Configure Azure Monitor with OpenTelemetry
-        # Enable all Azure SDK instrumentations including Cosmos DB
+        # Disable urllib/urllib3/requests auto-instrumentation to avoid duplicate Cosmos DB tracking
+        # Cosmos DB has manual tracing in database.py with proper db.system=cosmosdb attributes
         configure_azure_monitor(
             resource=resource,
             enable_live_metrics=True,
@@ -41,25 +46,17 @@ if _connection_string:
                 "azure_sdk": {
                     "enabled": True,
                 },
-                "requests": {"enabled": True},
-                "urllib3": {"enabled": True},
-                "urllib": {"enabled": True},
+                # Disable HTTP auto-tracking to avoid duplicate entries with Cosmos DB
+                # Our manual Cosmos DB spans provide better detail anyway
+                "requests": {"enabled": False},
+                "urllib3": {"enabled": False},
+                "urllib": {"enabled": False},
             }
         )
         
-        # Additionally, manually instrument Azure SDK for better Cosmos DB tracking
-        try:
-            from azure.core.tracing.ext.opentelemetry_span import OpenTelemetrySpan
-            from azure.core.settings import settings
-            settings.tracing_implementation = OpenTelemetrySpan
-            logging.info("✅ Azure Core OpenTelemetry tracing enabled for Cosmos DB")
-        except ImportError:
-            logging.warning("⚠️ Azure Core OpenTelemetry tracing not available")
-        except Exception as e:
-            logging.warning(f"⚠️ Azure Core tracing configuration failed: {e}")
-        
         logging.info(f"✅ OpenTelemetry configured for service: {service_name}")
-        logging.info("📊 Tracking: Azure SDK (Blob Storage, Cosmos DB) + HTTP requests")
+        logging.info("📊 Tracking: Azure SDK (Blob Storage) + Manual Cosmos DB spans")
+        logging.info("ℹ️ HTTP auto-tracking disabled to avoid duplicate Cosmos DB entries")
         
     except ImportError as e:
         logging.warning(f"⚠️ OpenTelemetry packages not available: {e}")
