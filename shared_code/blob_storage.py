@@ -59,11 +59,12 @@ class BlobStorageClient:
                         logging.info(f"Container '{self.container_name}' already exists")
                     else:
                         raise
+                # Only set flag if we successfully created or verified container exists
+                self._container_initialized = True
             except Exception as e:
                 logging.error(f"Failed to create/verify container: {str(e)}")
+                # Don't set _container_initialized = True on failure!
                 raise
-            finally:
-                self._container_initialized = True
 
     def create_pet(self, pet_data: Dict[str, Any]) -> Dict[str, Any]:
         """Create a new pet by uploading JSON blob"""
