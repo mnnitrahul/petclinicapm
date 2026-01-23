@@ -5,8 +5,8 @@ import os
 import logging
 import json
 from typing import Optional, Dict, Any, List
-from azure.storage.blob import BlobServiceClient, ContainerClient
-from azure.core.exceptions import ResourceExistsError, ResourceNotFoundError
+from azure.storage import CloudStorageAccount
+from azure.storage.blob import BlockBlobService
 
 
 class BlobStorageClient:
@@ -25,36 +25,32 @@ class BlobStorageClient:
         logging.info(f"AZURE_STORAGE_ACCOUNT_KEY present: {bool(self.account_key)}")
         logging.info(f"BLOB_CONTAINER_NAME: {self.container_name}")
         
-        # Initialize blob service client
+        # Initialize blob service client using legacy SDK
         if self.connection_string:
             # Preferred method: connection string
             logging.info("Using connection string for Blob Storage authentication")
-            self.blob_service_client = BlobServiceClient.from_connection_string(self.connection_string)
+            account = CloudStorageAccount(is_emulated=False, connection_string=self.connection_string)
+            self.block_blob_service = account.create_block_blob_service()
         elif self.account_name and self.account_key:
             # Alternative method: account name + key
             logging.info("Using account name and key for Blob Storage authentication")
-            account_url = f"https://{self.account_name}.blob.core.windows.net"
-            self.blob_service_client = BlobServiceClient(account_url=account_url, credential=self.account_key)
+            self.block_blob_service = BlockBlobService(account_name=self.account_name, account_key=self.account_key)
         else:
             logging.error("Missing required Blob Storage environment variables!")
             raise ValueError("Either AZURE_STORAGE_CONNECTION_STRING or both AZURE_STORAGE_ACCOUNT_NAME and AZURE_STORAGE_ACCOUNT_KEY are required")
         
         # Initialize container
-        self.container_client = None
         self._initialize_container()
         logging.info("=== BlobStorageClient initialization COMPLETE ===")
         
     def _initialize_container(self):
         """Initialize blob container if it doesn't exist"""
         try:
-            # Get or create container
-            self.container_client = self.blob_service_client.get_container_client(self.container_name)
-            
             # Create container if it doesn't exist
-            try:
-                self.container_client.create_container()
+            container_created = self.block_blob_service.create_container(self.container_name)
+            if container_created:
                 logging.info(f"Created new container: {self.container_name}")
-            except ResourceExistsError:
+            else:
                 logging.info(f"Container already exists: {self.container_name}")
                 
         except Exception as e:
@@ -79,9 +75,13 @@ class BlobStorageClient:
                 'created_at': pet_data.get('created_at', '')
             }
             
-            # Upload blob
-            blob_client = self.container_client.get_blob_client(blob_name)
-            blob_client.upload_blob(pet_json, overwrite=True, metadata=metadata)
+            # Upload blob using legacy API
+            self.block_blob_service.create_blob_from_text(
+                self.container_name,
+                blob_name,
+                pet_json,
+                metadata=metadata
+            )
             
             logging.info(f"Successfully created pet with ID: {pet_id}")
             return pet_data
@@ -94,18 +94,19 @@ class BlobStorageClient:
         """Get a single pet by ID"""
         try:
             blob_name = f"{pet_id}.json"
-            blob_client = self.container_client.get_blob_client(blob_name)
             
-            # Download blob content
-            blob_data = blob_client.download_blob().readall()
-            pet_data = json.loads(blob_data.decode('utf-8'))
+            # Check if blob exists first
+            if not self.block_blob_service.exists(self.container_name, blob_name):
+                logging.warning(f"Pet with ID {pet_id} not found")
+                return None
+            
+            # Download blob content using legacy API
+            blob_text = self.block_blob_service.get_blob_to_text(self.container_name, blob_name)
+            pet_data = json.loads(blob_text.content)
             
             logging.info(f"Retrieved pet with ID: {pet_id}")
             return pet_data
             
-        except ResourceNotFoundError:
-            logging.warning(f"Pet with ID {pet_id} not found")
-            return None
         except Exception as e:
             logging.error(f"Failed to get pet {pet_id}: {str(e)}")
             raise
@@ -114,18 +115,22 @@ class BlobStorageClient:
         """Get all pets with optional limit"""
         try:
             pets = []
-            blob_list = self.container_client.list_blobs(name_starts_with="", include=['metadata'])
+            
+            # List blobs using legacy API
+            blobs = self.block_blob_service.list_blobs(
+                self.container_name,
+                include="metadata"
+            )
             
             count = 0
-            for blob in blob_list:
+            for blob in blobs:
                 if count >= limit:
                     break
                     
                 try:
                     # Download each pet blob
-                    blob_client = self.container_client.get_blob_client(blob.name)
-                    blob_data = blob_client.download_blob().readall()
-                    pet_data = json.loads(blob_data.decode('utf-8'))
+                    blob_text = self.block_blob_service.get_blob_to_text(self.container_name, blob.name)
+                    pet_data = json.loads(blob_text.content)
                     pets.append(pet_data)
                     count += 1
                     
@@ -147,17 +152,18 @@ class BlobStorageClient:
         """Delete a pet"""
         try:
             blob_name = f"{pet_id}.json"
-            blob_client = self.container_client.get_blob_client(blob_name)
             
-            # Delete the blob
-            blob_client.delete_blob()
+            # Check if blob exists first
+            if not self.block_blob_service.exists(self.container_name, blob_name):
+                logging.warning(f"Pet with ID {pet_id} not found")
+                return False
+            
+            # Delete the blob using legacy API
+            self.block_blob_service.delete_blob(self.container_name, blob_name)
             
             logging.info(f"Deleted pet with ID: {pet_id}")
             return True
             
-        except ResourceNotFoundError:
-            logging.warning(f"Pet with ID {pet_id} not found")
-            return False
         except Exception as e:
             logging.error(f"Failed to delete pet {pet_id}: {str(e)}")
             raise
@@ -166,15 +172,19 @@ class BlobStorageClient:
         """Get all pets of a specific species"""
         try:
             pets = []
-            blob_list = self.container_client.list_blobs(name_starts_with="", include=['metadata'])
             
-            for blob in blob_list:
+            # List blobs with metadata using legacy API
+            blobs = self.block_blob_service.list_blobs(
+                self.container_name,
+                include="metadata"
+            )
+            
+            for blob in blobs:
                 # Check metadata first for efficiency
                 if blob.metadata and blob.metadata.get('species', '').lower() == species.lower():
                     try:
-                        blob_client = self.container_client.get_blob_client(blob.name)
-                        blob_data = blob_client.download_blob().readall()
-                        pet_data = json.loads(blob_data.decode('utf-8'))
+                        blob_text = self.block_blob_service.get_blob_to_text(self.container_name, blob.name)
+                        pet_data = json.loads(blob_text.content)
                         pets.append(pet_data)
                     except Exception as e:
                         logging.warning(f"Failed to read pet blob {blob.name}: {str(e)}")
