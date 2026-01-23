@@ -40,15 +40,28 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
             debug_info["diagnosis"].append(f"❌ Environment variable error: {str(e)}")
             debug_info["status"] = "ERROR"
         
-        # Test 2: Basic Azure SDK import (no shared_code)
+        # Test 2: Basic Azure SDK import (no shared_code) - Testing older azure-storage package
         try:
-            from azure.storage.blob import BlobServiceClient
-            debug_info["diagnosis"].append("✅ Azure Blob SDK import successful")
+            from azure.storage.blob import BlockBlobService
+            debug_info["diagnosis"].append("✅ Azure Storage (legacy) import successful - no cffi!")
         except ImportError as e:
-            debug_info["diagnosis"].append(f"❌ Azure Blob SDK import failed: {str(e)}")
+            debug_info["diagnosis"].append(f"❌ Azure Storage (legacy) import failed: {str(e)}")
             debug_info["status"] = "ERROR"
         except Exception as e:
-            debug_info["diagnosis"].append(f"❌ Unexpected Azure SDK error: {str(e)}")
+            debug_info["diagnosis"].append(f"❌ Unexpected Azure Storage error: {str(e)}")
+            debug_info["status"] = "ERROR"
+        
+        # Test 3: Try creating BlockBlobService instance
+        try:
+            connection_string = os.environ.get("AZURE_STORAGE_CONNECTION_STRING")
+            if connection_string:
+                from azure.storage.blob import BlockBlobService
+                # Don't actually create - just test the class exists
+                debug_info["diagnosis"].append("✅ BlockBlobService class available")
+            else:
+                debug_info["diagnosis"].append("⚠️ No connection string to test BlockBlobService")
+        except Exception as e:
+            debug_info["diagnosis"].append(f"❌ BlockBlobService test failed: {str(e)}")
             debug_info["status"] = "ERROR"
         
         debug_info["diagnosis"].append("🎉 Minimal debug completed successfully!")

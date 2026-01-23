@@ -1,19 +1,19 @@
 """
-Azure Blob Storage client using official Azure SDK
-Proper implementation with correct canonicalization and authentication
+Azure Blob Storage client using legacy azure-storage package
+No cffi dependency - Azure Functions compatible
 """
 import os
 import logging
 import json
 from typing import Optional, Dict, Any, List
-from azure.storage.blob import BlobServiceClient, BlobClient, ContainerClient
-from azure.core.exceptions import ResourceExistsError, ResourceNotFoundError
+from azure.storage.blob import BlockBlobService
+from azure.storage.common import CloudStorageAccount
 
 
 class BlobStorageClient:
     """
-    Azure SDK implementation - Azure Functions compatible
-    Uses lazy initialization to avoid cold start failures
+    Legacy Azure Storage implementation - No cffi dependency
+    Uses BlockBlobService from azure-storage package
     """
     
     def __init__(self):
@@ -25,38 +25,31 @@ class BlobStorageClient:
         self.container_name = os.environ.get("BLOB_CONTAINER_NAME", "pets")
         
         # Lazy initialization - clients created only when needed
-        self._blob_service_client = None
-        self._container_client = None
+        self._blob_service = None
         self._container_initialized = False
         
-    def _get_blob_service_client(self):
-        """Lazy initialization of blob service client"""
-        if self._blob_service_client is None:
+    def _get_blob_service(self):
+        """Lazy initialization of BlockBlobService"""
+        if self._blob_service is None:
             if self.connection_string:
-                self._blob_service_client = BlobServiceClient.from_connection_string(self.connection_string)
+                # Parse connection string to get account name and key
+                account = CloudStorageAccount(is_emulated=False)
+                account = account.create_from_connection_string(self.connection_string)
+                self._blob_service = account.create_block_blob_service()
             elif self.account_name and self.account_key:
-                account_url = f"https://{self.account_name}.blob.core.windows.net"
-                self._blob_service_client = BlobServiceClient(account_url=account_url, credential=self.account_key)
+                self._blob_service = BlockBlobService(account_name=self.account_name, account_key=self.account_key)
             else:
                 raise ValueError("Missing Azure Storage credentials: need AZURE_STORAGE_CONNECTION_STRING or (AZURE_STORAGE_ACCOUNT_NAME + AZURE_STORAGE_ACCOUNT_KEY)")
-        return self._blob_service_client
-    
-    def _get_container_client(self):
-        """Lazy initialization of container client"""
-        if self._container_client is None:
-            blob_service_client = self._get_blob_service_client()
-            self._container_client = blob_service_client.get_container_client(self.container_name)
-        return self._container_client
+        return self._blob_service
     
     def _ensure_container_exists(self):
         """Ensure container exists - only called when first operation happens"""
         if not self._container_initialized:
             try:
-                container_client = self._get_container_client()
-                container_client.create_container()
-                logging.info(f"Created new container: {self.container_name}")
-            except ResourceExistsError:
-                logging.info(f"Container already exists: {self.container_name}")
+                blob_service = self._get_blob_service()
+                # Create container if it doesn't exist
+                blob_service.create_container(self.container_name, fail_on_exist=False)
+                logging.info(f"Container '{self.container_name}' ready")
             except Exception as e:
                 logging.error(f"Failed to create/verify container: {str(e)}")
                 raise
@@ -84,10 +77,14 @@ class BlobStorageClient:
                 'created_at': pet_data.get('created_at', '')
             }
             
-            # Upload blob using lazy initialized container client
-            container_client = self._get_container_client()
-            blob_client = container_client.get_blob_client(blob_name)
-            blob_client.upload_blob(pet_json, overwrite=True, metadata=metadata)
+            # Upload blob using BlockBlobService (legacy API)
+            blob_service = self._get_blob_service()
+            blob_service.create_blob_from_text(
+                self.container_name, 
+                blob_name, 
+                pet_json,
+                metadata=metadata
+            )
             
             logging.info(f"Successfully created pet with ID: {pet_id}")
             return pet_data
@@ -103,19 +100,19 @@ class BlobStorageClient:
             self._ensure_container_exists()
             
             blob_name = f"{pet_id}.json"
-            container_client = self._get_container_client()
-            blob_client = container_client.get_blob_client(blob_name)
+            blob_service = self._get_blob_service()
             
-            # Download blob content using Azure SDK
-            blob_data = blob_client.download_blob().readall()
-            pet_data = json.loads(blob_data.decode('utf-8'))
+            # Download blob content using BlockBlobService (legacy API)
+            if blob_service.exists(self.container_name, blob_name):
+                blob_data = blob_service.get_blob_to_text(self.container_name, blob_name)
+                pet_data = json.loads(blob_data.content)
+                
+                logging.info(f"Retrieved pet with ID: {pet_id}")
+                return pet_data
+            else:
+                logging.warning(f"Pet with ID {pet_id} not found")
+                return None
             
-            logging.info(f"Retrieved pet with ID: {pet_id}")
-            return pet_data
-            
-        except ResourceNotFoundError:
-            logging.warning(f"Pet with ID {pet_id} not found")
-            return None
         except Exception as e:
             logging.error(f"Failed to get pet {pet_id}: {str(e)}")
             raise
@@ -127,8 +124,10 @@ class BlobStorageClient:
             self._ensure_container_exists()
             
             pets = []
-            container_client = self._get_container_client()
-            blob_list = container_client.list_blobs(name_starts_with="", include=['metadata'])
+            blob_service = self._get_blob_service()
+            
+            # List blobs using BlockBlobService (legacy API)
+            blob_list = blob_service.list_blobs(self.container_name, include='metadata')
             
             count = 0
             for blob in blob_list:
@@ -136,10 +135,9 @@ class BlobStorageClient:
                     break
                     
                 try:
-                    # Download each pet blob using Azure SDK
-                    blob_client = container_client.get_blob_client(blob.name)
-                    blob_data = blob_client.download_blob().readall()
-                    pet_data = json.loads(blob_data.decode('utf-8'))
+                    # Download each pet blob
+                    blob_data = blob_service.get_blob_to_text(self.container_name, blob.name)
+                    pet_data = json.loads(blob_data.content)
                     pets.append(pet_data)
                     count += 1
                     
@@ -164,18 +162,17 @@ class BlobStorageClient:
             self._ensure_container_exists()
             
             blob_name = f"{pet_id}.json"
-            container_client = self._get_container_client()
-            blob_client = container_client.get_blob_client(blob_name)
+            blob_service = self._get_blob_service()
             
-            # Delete the blob using Azure SDK
-            blob_client.delete_blob()
+            # Check if blob exists and delete using BlockBlobService (legacy API)
+            if blob_service.exists(self.container_name, blob_name):
+                blob_service.delete_blob(self.container_name, blob_name)
+                logging.info(f"Deleted pet with ID: {pet_id}")
+                return True
+            else:
+                logging.warning(f"Pet with ID {pet_id} not found")
+                return False
             
-            logging.info(f"Deleted pet with ID: {pet_id}")
-            return True
-            
-        except ResourceNotFoundError:
-            logging.warning(f"Pet with ID {pet_id} not found")
-            return False
         except Exception as e:
             logging.error(f"Failed to delete pet {pet_id}: {str(e)}")
             raise
@@ -187,16 +184,17 @@ class BlobStorageClient:
             self._ensure_container_exists()
             
             pets = []
-            container_client = self._get_container_client()
-            blob_list = container_client.list_blobs(name_starts_with="", include=['metadata'])
+            blob_service = self._get_blob_service()
+            
+            # List blobs with metadata using BlockBlobService (legacy API)
+            blob_list = blob_service.list_blobs(self.container_name, include='metadata')
             
             for blob in blob_list:
                 # Check metadata first for efficiency
                 if blob.metadata and blob.metadata.get('species', '').lower() == species.lower():
                     try:
-                        blob_client = container_client.get_blob_client(blob.name)
-                        blob_data = blob_client.download_blob().readall()
-                        pet_data = json.loads(blob_data.decode('utf-8'))
+                        blob_data = blob_service.get_blob_to_text(self.container_name, blob.name)
+                        pet_data = json.loads(blob_data.content)
                         pets.append(pet_data)
                     except Exception as e:
                         logging.warning(f"Failed to read pet blob {blob.name}: {str(e)}")
