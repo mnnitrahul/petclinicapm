@@ -24,15 +24,15 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     }
 
     try:
-        # Test 1: Check azure-storage import
+        # Test 1: Check azure-storage-blob import
         try:
-            from azure.storage import CloudStorageAccount
-            from azure.storage.blob import BlockBlobService
-            debug_info["imports"]["azure_storage"] = "SUCCESS"
-            debug_info["diagnosis"].append("✅ azure-storage package available")
+            from azure.storage.blob import BlobServiceClient, ContainerClient
+            from azure.core.exceptions import ResourceExistsError, ResourceNotFoundError
+            debug_info["imports"]["azure_storage_blob"] = "SUCCESS"
+            debug_info["diagnosis"].append("✅ azure-storage-blob package available")
         except ImportError as e:
-            debug_info["imports"]["azure_storage"] = f"FAILED - {str(e)}"
-            debug_info["diagnosis"].append("❌ azure-storage package missing")
+            debug_info["imports"]["azure_storage_blob"] = f"FAILED - {str(e)}"
+            debug_info["diagnosis"].append("❌ azure-storage-blob package missing")
             debug_info["status"] = "ERROR"
 
         # Test 2: Check environment variables
@@ -59,35 +59,38 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
             debug_info["status"] = "ERROR"
 
         # Test 3: Test blob storage connection
-        if debug_info["imports"]["azure_storage"] == "SUCCESS":
+        if debug_info["imports"]["azure_storage_blob"] == "SUCCESS":
             try:
                 if connection_string:
-                    # Test connection string method using legacy API
-                    account = CloudStorageAccount(is_emulated=False, connection_string=connection_string)
-                    block_blob_service = account.create_block_blob_service()
+                    # Test connection string method
+                    blob_service_client = BlobServiceClient.from_connection_string(connection_string)
                     debug_info["connection_test"]["method"] = "connection_string"
                 elif account_name and account_key:
-                    # Test account name + key method using legacy API
-                    block_blob_service = BlockBlobService(account_name=account_name, account_key=account_key)
+                    # Test account name + key method
+                    account_url = f"https://{account_name}.blob.core.windows.net"
+                    blob_service_client = BlobServiceClient(account_url=account_url, credential=account_key)
                     debug_info["connection_test"]["method"] = "account_name_key"
+                    debug_info["connection_test"]["account_url"] = account_url
                 else:
                     raise ValueError("No valid authentication method found")
 
-                # Test basic connectivity using legacy API
+                # Test basic connectivity
+                container_client = blob_service_client.get_container_client(container_name)
+                
+                # Try to create container (will succeed or give "already exists" error)
                 try:
-                    container_created = block_blob_service.create_container(container_name)
-                    if container_created:
-                        debug_info["connection_test"]["container_creation"] = "SUCCESS - Created new container"
-                    else:
-                        debug_info["connection_test"]["container_creation"] = "SUCCESS - Container already exists"
+                    container_client.create_container()
+                    debug_info["connection_test"]["container_creation"] = "SUCCESS - Created new container"
+                except ResourceExistsError:
+                    debug_info["connection_test"]["container_creation"] = "SUCCESS - Container already exists"
                 except Exception as create_error:
                     debug_info["connection_test"]["container_creation"] = f"FAILED - {str(create_error)}"
 
-                # Test listing blobs using legacy API
+                # Test listing blobs
                 try:
-                    blobs = list(block_blob_service.list_blobs(container_name))
-                    debug_info["connection_test"]["list_blobs"] = f"SUCCESS - Found {len(blobs)} blobs"
-                    debug_info["connection_test"]["blob_count"] = len(blobs)
+                    blob_list = list(container_client.list_blobs())
+                    debug_info["connection_test"]["list_blobs"] = f"SUCCESS - Found {len(blob_list)} blobs"
+                    debug_info["connection_test"]["blob_count"] = len(blob_list)
                 except Exception as list_error:
                     debug_info["connection_test"]["list_blobs"] = f"FAILED - {str(list_error)}"
 
