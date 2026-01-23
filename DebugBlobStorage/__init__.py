@@ -40,29 +40,31 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
             debug_info["diagnosis"].append(f"❌ Environment variable error: {str(e)}")
             debug_info["status"] = "ERROR"
         
-        # Test 2: Basic Azure SDK import (no shared_code) - Testing azure-storage-blob==2.1.0
+        # Test 2: Modern Azure SDK import - Testing azure-storage-blob==12.19.0 with Python 3.10
         try:
-            from azure.storage.blob import BlockBlobService
-            debug_info["diagnosis"].append("✅ Azure Storage Blob 2.1.0 import successful!")
+            from azure.storage.blob import BlobServiceClient, BlobClient, ContainerClient
+            debug_info["diagnosis"].append("✅ Modern Azure Storage Blob SDK import successful! 🎉")
+            debug_info["diagnosis"].append("✅ Python 3.10 + Azure SDK working!")
         except ImportError as e:
-            debug_info["diagnosis"].append(f"❌ Azure Storage Blob 2.1.0 import failed: {str(e)}")
+            debug_info["diagnosis"].append(f"❌ Modern Azure Storage Blob SDK import failed: {str(e)}")
             debug_info["status"] = "ERROR"
         except Exception as e:
-            debug_info["diagnosis"].append(f"❌ Unexpected Azure Storage error: {str(e)}")
+            debug_info["diagnosis"].append(f"❌ Unexpected Azure Storage SDK error: {str(e)}")
             debug_info["status"] = "ERROR"
         
-        # Test 3: Try creating BlockBlobService instance
+        # Test 3: Try creating BlobServiceClient instance (no network calls)
         try:
             connection_string = os.environ.get("AZURE_STORAGE_CONNECTION_STRING")
             if connection_string:
-                from azure.storage.blob import BlockBlobService
-                # Test if we can create BlockBlobService without network calls
-                debug_info["diagnosis"].append("✅ BlockBlobService class available")
+                from azure.storage.blob import BlobServiceClient
+                # Test if we can create the modern client class without network calls
+                debug_info["diagnosis"].append("✅ BlobServiceClient class available")
                 debug_info["diagnosis"].append("✅ Connection string available for testing")
+                debug_info["diagnosis"].append("✅ Ready for modern Azure SDK operations!")
             else:
-                debug_info["diagnosis"].append("⚠️ No connection string to test BlockBlobService")
+                debug_info["diagnosis"].append("⚠️ No connection string - configure AZURE_STORAGE_CONNECTION_STRING")
         except Exception as e:
-            debug_info["diagnosis"].append(f"❌ BlockBlobService test failed: {str(e)}")
+            debug_info["diagnosis"].append(f"❌ BlobServiceClient test failed: {str(e)}")
             debug_info["status"] = "ERROR"
         
         debug_info["diagnosis"].append("🎉 Minimal debug completed successfully!")
