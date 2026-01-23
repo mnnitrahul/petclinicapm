@@ -9,74 +9,76 @@ from typing import Optional, Dict, Any, List
 
 
 class CosmosDBClient:
+    """Azure Functions compatible Cosmos DB client with lazy initialization"""
+    
     def __init__(self):
-        logging.info("=== CosmosDBClient initialization START ===")
-        
-        # Get environment variables
+        # NO logging, NO network calls, NO Cosmos SDK calls in __init__
+        # Store configuration only
         self.endpoint = os.environ.get("COSMOS_DB_ENDPOINT")
         self.key = os.environ.get("COSMOS_DB_KEY")
         self.database_name = os.environ.get("COSMOS_DB_DATABASE", "petclinic")
         self.container_name = os.environ.get("COSMOS_DB_CONTAINER", "appointments")
         
-        # Log environment variable status (without exposing sensitive data)
-        logging.info(f"COSMOS_DB_ENDPOINT present: {bool(self.endpoint)}")
-        logging.info(f"COSMOS_DB_KEY present: {bool(self.key)}")
-        logging.info(f"COSMOS_DB_DATABASE: {self.database_name}")
-        logging.info(f"COSMOS_DB_CONTAINER: {self.container_name}")
+        # Lazy initialization - clients created only when needed
+        self._client = None
+        self._database = None
+        self._container = None
+        self._database_initialized = False
         
-        if self.endpoint:
-            # Log endpoint (safe to log)
-            logging.info(f"Cosmos DB Endpoint: {self.endpoint}")
-        
-        if not self.endpoint or not self.key:
-            logging.error("Missing required environment variables!")
-            logging.error(f"COSMOS_DB_ENDPOINT missing: {not self.endpoint}")
-            logging.error(f"COSMOS_DB_KEY missing: {not self.key}")
-            raise ValueError("COSMOS_DB_ENDPOINT and COSMOS_DB_KEY environment variables are required")
-        
-        # Initialize Cosmos client
-        logging.info("Creating CosmosClient...")
-        try:
-            self.client = CosmosClient(self.endpoint, self.key)
-            logging.info("CosmosClient created successfully")
-        except Exception as e:
-            logging.error(f"Failed to create CosmosClient: {str(e)}")
-            raise
-        
-        self.database = None
-        self.container = None
-        
-        # Initialize database and container
-        logging.info("Initializing database and container...")
-        self._initialize_database()
-        logging.info("=== CosmosDBClient initialization COMPLETE ===")
-        
-    def _initialize_database(self):
-        """Initialize database and container if they don't exist"""
-        try:
-            # Create database if it doesn't exist
-            self.database = self.client.create_database_if_not_exists(
-                id=self.database_name
-            )
-            
-            # Create container if it doesn't exist
-            # Using appointment_date as partition key for better distribution
-            self.container = self.database.create_container_if_not_exists(
-                id=self.container_name,
-                partition_key=PartitionKey(path="/appointment_date"),
-                offer_throughput=400
-            )
-            
-            logging.info(f"Database '{self.database_name}' and container '{self.container_name}' initialized successfully")
-            
-        except Exception as e:
-            logging.error(f"Failed to initialize database: {str(e)}")
-            raise
+    def _get_client(self):
+        """Lazy initialization of Cosmos client"""
+        if self._client is None:
+            if not self.endpoint or not self.key:
+                raise ValueError("Missing Cosmos DB credentials: need COSMOS_DB_ENDPOINT and COSMOS_DB_KEY")
+            self._client = CosmosClient(self.endpoint, self.key)
+        return self._client
+    
+    def _get_database(self):
+        """Lazy initialization of database"""
+        if self._database is None:
+            client = self._get_client()
+            self._database = client.get_database_client(self.database_name)
+        return self._database
+    
+    def _get_container(self):
+        """Lazy initialization of container"""
+        if self._container is None:
+            database = self._get_database()
+            self._container = database.get_container_client(self.container_name)
+        return self._container
+    
+    def _ensure_database_exists(self):
+        """Ensure database and container exist - only called when first operation happens"""
+        if not self._database_initialized:
+            try:
+                client = self._get_client()
+                # Create database if it doesn't exist
+                self._database = client.create_database_if_not_exists(id=self.database_name)
+                
+                # Create container if it doesn't exist
+                # Using appointment_date as partition key for better distribution
+                self._container = self._database.create_container_if_not_exists(
+                    id=self.container_name,
+                    partition_key=PartitionKey(path="/appointment_date"),
+                    offer_throughput=400
+                )
+                
+                logging.info(f"Database '{self.database_name}' and container '{self.container_name}' initialized successfully")
+                
+            except Exception as e:
+                logging.error(f"Failed to initialize database: {str(e)}")
+                raise
+            finally:
+                self._database_initialized = True
     
     def create_appointment(self, appointment_data: Dict[str, Any]) -> Dict[str, Any]:
         """Create a new appointment"""
         try:
-            created_item = self.container.create_item(body=appointment_data)
+            # Ensure database exists before first operation
+            self._ensure_database_exists()
+            
+            container = self._get_container()
+            created_item = container.create_item(body=appointment_data)
             logging.info(f"Created appointment with ID: {created_item['id']}")
             return created_item
         except Exception as e:
@@ -86,7 +88,11 @@ class CosmosDBClient:
     def get_appointment_by_id(self, appointment_id: str, appointment_date: str) -> Optional[Dict[str, Any]]:
         """Get a single appointment by ID"""
         try:
-            item = self.container.read_item(
+            # Ensure database exists before first operation
+            self._ensure_database_exists()
+            
+            container = self._get_container()
+            item = container.read_item(
                 item=appointment_id,
                 partition_key=appointment_date
             )
@@ -102,8 +108,12 @@ class CosmosDBClient:
     def get_all_appointments(self, limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
         """Get all appointments with optional pagination"""
         try:
+            # Ensure database exists before first operation
+            self._ensure_database_exists()
+            
+            container = self._get_container()
             query = f"SELECT * FROM c ORDER BY c.created_at DESC OFFSET {offset} LIMIT {limit}"
-            items = list(self.container.query_items(
+            items = list(container.query_items(
                 query=query,
                 enable_cross_partition_query=True
             ))
@@ -116,10 +126,14 @@ class CosmosDBClient:
     def get_appointments_by_date(self, appointment_date: str) -> List[Dict[str, Any]]:
         """Get all appointments for a specific date"""
         try:
+            # Ensure database exists before first operation
+            self._ensure_database_exists()
+            
+            container = self._get_container()
             query = "SELECT * FROM c WHERE c.appointment_date = @date ORDER BY c.appointment_time"
             parameters = [{"name": "@date", "value": appointment_date}]
             
-            items = list(self.container.query_items(
+            items = list(container.query_items(
                 query=query,
                 parameters=parameters,
                 partition_key=appointment_date
@@ -133,6 +147,9 @@ class CosmosDBClient:
     def update_appointment(self, appointment_id: str, appointment_date: str, updated_data: Dict[str, Any]) -> Dict[str, Any]:
         """Update an existing appointment"""
         try:
+            # Ensure database exists before first operation
+            self._ensure_database_exists()
+            
             # First get the existing item
             existing_item = self.get_appointment_by_id(appointment_id, appointment_date)
             if not existing_item:
@@ -141,7 +158,8 @@ class CosmosDBClient:
             # Update the item with new data
             existing_item.update(updated_data)
             
-            updated_item = self.container.replace_item(
+            container = self._get_container()
+            updated_item = container.replace_item(
                 item=appointment_id,
                 body=existing_item
             )
@@ -154,7 +172,11 @@ class CosmosDBClient:
     def delete_appointment(self, appointment_id: str, appointment_date: str) -> bool:
         """Delete an appointment"""
         try:
-            self.container.delete_item(
+            # Ensure database exists before first operation
+            self._ensure_database_exists()
+            
+            container = self._get_container()
+            container.delete_item(
                 item=appointment_id,
                 partition_key=appointment_date
             )
