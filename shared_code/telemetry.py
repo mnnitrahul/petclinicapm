@@ -17,17 +17,17 @@ _connection_string = os.environ.get("APPLICATIONINSIGHTS_CONNECTION_STRING")
 if _connection_string:
     try:
         from azure.monitor.opentelemetry import configure_azure_monitor
-        from opentelemetry.instrumentation.azure_sdk import AzureSDKInstrumentor
-        from opentelemetry.instrumentation.requests import RequestsInstrumentor
         
         # Configure Azure Monitor with OpenTelemetry
-        configure_azure_monitor()
-        
-        # Instrument Azure SDK (Blob Storage, Cosmos DB, etc.)
-        AzureSDKInstrumentor().instrument()
-        
-        # Instrument HTTP requests
-        RequestsInstrumentor().instrument()
+        # This automatically instruments Azure SDK (Blob Storage, Cosmos DB) and HTTP requests
+        configure_azure_monitor(
+            enable_live_metrics=True,
+            instrumentation_options={
+                "azure_sdk": {"enabled": True},
+                "requests": {"enabled": True},
+                "urllib3": {"enabled": True},
+            }
+        )
         
         logging.info("✅ OpenTelemetry dependency tracking configured successfully")
         logging.info("📊 Tracking: Azure SDK (Blob Storage, Cosmos DB) + HTTP requests")

@@ -7,7 +7,5 @@ requests==2.31.0
 python-dateutil==2.8.2
 
 # OpenTelemetry for dependency tracking (Azure Monitor integration)
-opentelemetry-sdk
-opentelemetry-instrumentation-azure-sdk
-opentelemetry-instrumentation-requests
+# azure-monitor-opentelemetry includes Azure SDK auto-instrumentation
 azure-monitor-opentelemetry
