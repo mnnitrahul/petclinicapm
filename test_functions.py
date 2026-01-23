@@ -203,36 +203,44 @@ def test_blob_storage_client():
                 print(f"❌ Wrong type returned: {type(blob_service)}")
                 return False
             
-            # Test 3: Actual Azure SDK method calls - test the method chain
+            # Test 3: Actual BlobStorageClient method calls that would catch runtime issues
+            print("🧪 Testing actual BlobStorageClient methods (scoping issues, runtime errors)...")
+            
+            # Test the real methods that failed in production
+            try:
+                # This would catch the "local variable 'BlobServiceClient' referenced before assignment" error
+                test_pets = client.get_all_pets(limit=1)
+                print("✅ get_all_pets() method working (empty result expected)")
+            except Exception as e:
+                error_str = str(e).lower()
+                if ("referenced before assignment" in error_str or "blobserviceclient" in error_str):
+                    print(f"❌ CRITICAL: Scoping issue detected: {str(e)}")
+                    return False
+                elif ("authentication" in error_str or "authorization" in error_str or 
+                      "forbidden" in error_str or "missing azure storage credentials" in error_str):
+                    print("✅ get_all_pets() scoping OK (expected auth error)")
+                else:
+                    print(f"⚠️  get_all_pets() error: {str(e)}")
+            
+            # Test container creation logic
+            try:
+                client._ensure_container_exists()
+                print("✅ _ensure_container_exists() method working")
+            except Exception as e:
+                error_str = str(e).lower()
+                if ("authentication" in error_str or "authorization" in error_str or 
+                    "forbidden" in error_str or "missing azure storage credentials" in error_str):
+                    print("✅ _ensure_container_exists() working (expected auth error)")
+                else:
+                    print(f"❌ _ensure_container_exists() failed: {str(e)}")
+                    return False
+            
+            # Test Azure SDK method chain directly
             container_client = blob_service.get_container_client("test-container")
             print("✅ get_container_client() method available")
             
             blob_client = blob_service.get_blob_client(container="test", blob="test.json") 
             print("✅ get_blob_client() method available")
-            
-            # Test 4: Container operations (will fail with auth error, but confirms SDK integration)
-            try:
-                container_client.create_container()
-                print("✅ create_container() method executed successfully")
-            except Exception as e:
-                error_str = str(e).lower()
-                if ("authentication" in error_str or "authorization" in error_str or 
-                    "forbidden" in error_str or "invalid" in error_str or "accountkey" in error_str):
-                    print("✅ create_container() method working (expected auth error)")
-                else:
-                    print(f"⚠️  Unexpected container error: {str(e)}")
-            
-            # Test 5: Blob operations  
-            try:
-                blob_client.upload_blob("test data", overwrite=True)
-                print("✅ upload_blob() method executed successfully") 
-            except Exception as e:
-                error_str = str(e).lower()
-                if ("authentication" in error_str or "authorization" in error_str or 
-                    "forbidden" in error_str or "invalid" in error_str or "accountkey" in error_str):
-                    print("✅ upload_blob() method working (expected auth error)")
-                else:
-                    print(f"⚠️  Unexpected blob error: {str(e)}")
                 
         except Exception as e:
             error_str = str(e)

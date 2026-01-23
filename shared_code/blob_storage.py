@@ -36,7 +36,7 @@ class BlobStorageClient:
                 self._blob_service = BlobServiceClient.from_connection_string(self.connection_string)
             elif self.account_name and self.account_key:
                 account_url = f"https://{self.account_name}.blob.core.windows.net"
-                from azure.storage.blob import BlobServiceClient
+                # BlobServiceClient already imported at top - no need for local import
                 from azure.core.credentials import AzureKeyCredential
                 # Create credential object for the modern SDK
                 credential = AzureKeyCredential(self.account_key) 
