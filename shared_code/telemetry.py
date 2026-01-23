@@ -17,18 +17,15 @@ _connection_string = os.environ.get("APPLICATIONINSIGHTS_CONNECTION_STRING")
 if _connection_string:
     try:
         from azure.monitor.opentelemetry import configure_azure_monitor
-        from opentelemetry import trace
-        from opentelemetry.sdk.resources import Resource, SERVICE_NAME, SERVICE_NAMESPACE, SERVICE_VERSION
+        from opentelemetry.sdk.resources import Resource, SERVICE_NAME, SERVICE_VERSION
         
         # Get the function app name from environment variables
         # Azure Functions provides WEBSITE_SITE_NAME which is the function app name
         service_name = os.environ.get("WEBSITE_SITE_NAME", "petclinic-apm-function-app")
-        service_namespace = os.environ.get("WEBSITE_RESOURCE_GROUP", "petclinic")
         
-        # Create a resource with proper service identification
+        # Create a resource with proper service identification (no namespace prefix)
         resource = Resource.create({
             SERVICE_NAME: service_name,
-            SERVICE_NAMESPACE: service_namespace,
             SERVICE_VERSION: "1.0.0",
             "service.instance.id": os.environ.get("WEBSITE_INSTANCE_ID", "local"),
             "cloud.provider": "azure",
