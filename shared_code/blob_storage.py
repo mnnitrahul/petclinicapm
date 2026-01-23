@@ -111,6 +111,13 @@ class BlobStorageClient:
         # String to sign (Azure Storage format)
         string_to_sign = f"{method}\n{content_encoding}\n{content_language}\n{content_length}\n{content_md5}\n{content_type}\n{date}\n{if_modified_since}\n{if_match}\n{if_none_match}\n{if_unmodified_since}\n{range_header}\n{canonical_headers}{canonical_resource}"
         
+        # Debug logging
+        logging.info(f"🔍 DEBUG - Method: {method}")
+        logging.info(f"🔍 DEBUG - URL Path: {url_path}")
+        logging.info(f"🔍 DEBUG - Account Name: {self.account_name}")
+        logging.info(f"🔍 DEBUG - Account Key Length: {len(self.account_key)}")
+        logging.info(f"🔍 DEBUG - String to Sign: {repr(string_to_sign)}")
+        
         # Generate signature using SHA256
         signature = base64.b64encode(
             hmac.new(
@@ -121,6 +128,9 @@ class BlobStorageClient:
         ).decode('utf-8')
         
         headers['Authorization'] = f"SharedKey {self.account_name}:{signature}"
+        
+        logging.info(f"🔍 DEBUG - Generated Signature: {signature[:20]}...")
+        logging.info(f"🔍 DEBUG - Authorization Header: SharedKey {self.account_name}:{signature[:20]}...")
         
         return headers
     
