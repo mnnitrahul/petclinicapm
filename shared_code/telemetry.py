@@ -37,8 +37,8 @@ if _connection_string:
         })
         
         # Configure Azure Monitor with OpenTelemetry
-        # Disable urllib/urllib3/requests auto-instrumentation to avoid duplicate Cosmos DB tracking
         # Cosmos DB has manual tracing in database.py with proper db.system=cosmosdb attributes
+        # We disable auto-instrumentation that would create duplicate/generic HTTP spans
         configure_azure_monitor(
             resource=resource,
             enable_live_metrics=True,
@@ -46,17 +46,24 @@ if _connection_string:
                 "azure_sdk": {
                     "enabled": True,
                 },
-                # Disable HTTP auto-tracking to avoid duplicate entries with Cosmos DB
-                # Our manual Cosmos DB spans provide better detail anyway
+                # Disable HTTP auto-tracking to avoid generic HTTP spans for Cosmos DB
+                # The azure-cosmos SDK uses azure-core which makes HTTP calls internally
                 "requests": {"enabled": False},
                 "urllib3": {"enabled": False},
                 "urllib": {"enabled": False},
-            }
+                "httpx": {"enabled": False},
+            },
+            # Exclude Cosmos DB endpoints from HTTP dependency tracking
+            # Manual spans in database.py provide better Cosmos DB-specific attributes
+            exclude_urls=[
+                cosmos_host,
+                "documents.azure.com",
+            ] if cosmos_host else ["documents.azure.com"],
         )
         
         logging.info(f"✅ OpenTelemetry configured for service: {service_name}")
         logging.info("📊 Tracking: Azure SDK (Blob Storage) + Manual Cosmos DB spans")
-        logging.info("ℹ️ HTTP auto-tracking disabled to avoid duplicate Cosmos DB entries")
+        logging.info(f"ℹ️ Excluded from HTTP tracking: {cosmos_host or 'documents.azure.com'}")
         
     except ImportError as e:
         logging.warning(f"⚠️ OpenTelemetry packages not available: {e}")
