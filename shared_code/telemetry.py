@@ -1,20 +1,33 @@
 """
 OpenTelemetry configuration for Azure Monitor dependency tracking.
 Import this module once to enable automatic instrumentation of:
-- Azure SDK calls (Blob Storage)
-- HTTP requests (except Cosmos DB which has manual tracing)
+- Azure SDK calls (Blob Storage, Cosmos DB)
 - Application Insights integration
 
 Usage: Simply import this module at the top of your Azure Function:
     from shared_code import telemetry  # Triggers OpenTelemetry setup
+
+Environment Variables:
+- APPLICATIONINSIGHTS_CONNECTION_STRING: Required for App Insights export
+- ENABLE_OPENTELEMETRY: Set to "false" to disable code-based instrumentation
+  (Portal checkbox instrumentation will still work)
 """
 import os
 import logging
 
-# Only configure if running in Azure (has App Insights connection string)
+# Check if OpenTelemetry is explicitly disabled via environment variable
+_enable_otel = os.environ.get("ENABLE_OPENTELEMETRY", "true").lower()
 _connection_string = os.environ.get("APPLICATIONINSIGHTS_CONNECTION_STRING")
 
-if _connection_string:
+# Only configure if:
+# 1. ENABLE_OPENTELEMETRY is not "false"
+# 2. Running in Azure (has App Insights connection string)
+if _enable_otel == "false":
+    logging.info("ℹ️ OpenTelemetry disabled via ENABLE_OPENTELEMETRY=false environment variable")
+    logging.info("📊 Using Azure Portal auto-instrumentation only (if enabled in console)")
+    get_trace_context = None
+    _tracer = None
+elif _connection_string:
     try:
         from azure.monitor.opentelemetry import configure_azure_monitor
         from opentelemetry.sdk.resources import Resource, SERVICE_NAME, SERVICE_VERSION
@@ -39,8 +52,6 @@ if _connection_string:
         })
         
         # Configure Azure Monitor with OpenTelemetry
-        # Cosmos DB has manual tracing in database.py with proper db.system=cosmosdb attributes
-        # We disable auto-instrumentation that would create duplicate/generic HTTP spans
         configure_azure_monitor(
             resource=resource,
             enable_live_metrics=True,
@@ -48,15 +59,13 @@ if _connection_string:
                 "azure_sdk": {
                     "enabled": True,
                 },
-                # Disable HTTP auto-tracking to avoid generic HTTP spans for Cosmos DB
-                # The azure-cosmos SDK uses azure-core which makes HTTP calls internally
+                # Disable HTTP auto-tracking to let Azure SDK handle it
                 "requests": {"enabled": False},
                 "urllib3": {"enabled": False},
                 "urllib": {"enabled": False},
                 "httpx": {"enabled": False},
             },
             # Exclude Cosmos DB endpoints from HTTP dependency tracking
-            # Manual spans in database.py provide better Cosmos DB-specific attributes
             exclude_urls=[
                 cosmos_host,
                 "documents.azure.com",
@@ -64,7 +73,7 @@ if _connection_string:
         )
         
         logging.info(f"✅ OpenTelemetry configured for service: {service_name}")
-        logging.info("📊 Tracking: Azure SDK (Blob Storage) + Manual Cosmos DB spans")
+        logging.info("📊 Tracking: Azure SDK auto-instrumentation enabled")
         logging.info(f"ℹ️ Excluded from HTTP tracking: {cosmos_host or 'documents.azure.com'}")
         
         # Helper function to extract trace context from incoming request
