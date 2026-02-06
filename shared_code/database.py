@@ -17,34 +17,41 @@ except ImportError:
     _OTEL_AVAILABLE = False
 
 
+from contextlib import contextmanager
+
+@contextmanager
 def _create_cosmos_span(operation_name: str, database: str = None, container: str = None, item_id: str = None):
-    """Create an OpenTelemetry span for Cosmos DB operations"""
+    """Create an OpenTelemetry span for Cosmos DB operations.
+    
+    Uses start_as_current_span to ensure HTTP calls made by the Cosmos SDK
+    are properly linked as children of this span in the trace hierarchy.
+    """
     if not _OTEL_AVAILABLE or not _tracer:
-        # Return a no-op context manager
+        # Yield a no-op span object for attribute setting
         class NoOpSpan:
-            def __enter__(self): return self
-            def __exit__(self, *args): pass
             def set_attribute(self, key, value): pass
             def set_status(self, status): pass
             def record_exception(self, exc): pass
-        return NoOpSpan()
-    
-    span = _tracer.start_span(
+        yield NoOpSpan()
+        return
+
+    # Use start_as_current_span to activate the span in context
+    # This ensures downstream HTTP calls become children of this span
+    with _tracer.start_as_current_span(
         f"Cosmos DB {operation_name}",
         kind=trace.SpanKind.CLIENT
-    )
-    
-    # Set Cosmos DB specific attributes
-    span.set_attribute("db.system", "cosmosdb")
-    span.set_attribute("db.name", database or "unknown")
-    span.set_attribute("db.operation", operation_name)
-    span.set_attribute("db.cosmosdb.container", container or "unknown")
-    span.set_attribute("net.peer.name", os.environ.get("COSMOS_DB_ENDPOINT", "").replace("https://", "").replace(":443/", ""))
-    
-    if item_id:
-        span.set_attribute("db.cosmosdb.item_id", item_id)
-    
-    return span
+    ) as span:
+        # Set Cosmos DB specific attributes
+        span.set_attribute("db.system", "cosmosdb")
+        span.set_attribute("db.name", database or "unknown")
+        span.set_attribute("db.operation", operation_name)
+        span.set_attribute("db.cosmosdb.container", container or "unknown")
+        span.set_attribute("net.peer.name", os.environ.get("COSMOS_DB_ENDPOINT", "").replace("https://", "").replace(":443/", ""))
+        
+        if item_id:
+            span.set_attribute("db.cosmosdb.item_id", item_id)
+        
+        yield span
 
 
 class CosmosDBClient:
@@ -89,9 +96,8 @@ class CosmosDBClient:
     def _ensure_database_exists(self):
         """Ensure database and container exist - only called when first operation happens"""
         if not self._database_initialized:
-            span = _create_cosmos_span("Initialize", self.database_name, self.container_name)
             try:
-                with span:
+                with _create_cosmos_span("Initialize", self.database_name, self.container_name) as span:
                     client = self._get_client()
                     # Create database if it doesn't exist
                     self._database = client.create_database_if_not_exists(id=self.database_name)
@@ -108,8 +114,6 @@ class CosmosDBClient:
                     if _OTEL_AVAILABLE:
                         span.set_attribute("db.cosmosdb.status", "initialized")
             except Exception as e:
-                if _OTEL_AVAILABLE and hasattr(span, 'record_exception'):
-                    span.record_exception(e)
                 logging.error(f"Failed to initialize database: {str(e)}")
                 raise
             finally:
@@ -117,9 +121,8 @@ class CosmosDBClient:
     
     def create_appointment(self, appointment_data: Dict[str, Any]) -> Dict[str, Any]:
         """Create a new appointment"""
-        span = _create_cosmos_span("CreateItem", self.database_name, self.container_name, appointment_data.get('id'))
-        try:
-            with span:
+        with _create_cosmos_span("CreateItem", self.database_name, self.container_name, appointment_data.get('id')) as span:
+            try:
                 # Ensure database exists before first operation
                 self._ensure_database_exists()
                 
@@ -132,17 +135,16 @@ class CosmosDBClient:
                     span.set_attribute("db.cosmosdb.status", "created")
                 
                 return created_item
-        except Exception as e:
-            if _OTEL_AVAILABLE and hasattr(span, 'record_exception'):
-                span.record_exception(e)
-            logging.error(f"Failed to create appointment: {str(e)}")
-            raise
+            except Exception as e:
+                if _OTEL_AVAILABLE and hasattr(span, 'record_exception'):
+                    span.record_exception(e)
+                logging.error(f"Failed to create appointment: {str(e)}")
+                raise
     
     def get_appointment_by_id(self, appointment_id: str, appointment_date: str) -> Optional[Dict[str, Any]]:
         """Get a single appointment by ID"""
-        span = _create_cosmos_span("ReadItem", self.database_name, self.container_name, appointment_id)
-        try:
-            with span:
+        with _create_cosmos_span("ReadItem", self.database_name, self.container_name, appointment_id) as span:
+            try:
                 # Ensure database exists before first operation
                 self._ensure_database_exists()
                 
@@ -158,22 +160,21 @@ class CosmosDBClient:
                     span.set_attribute("db.cosmosdb.status", "found")
                 
                 return item
-        except CosmosResourceNotFoundError:
-            if _OTEL_AVAILABLE:
-                span.set_attribute("db.cosmosdb.status", "not_found")
-            logging.warning(f"Appointment with ID {appointment_id} not found")
-            return None
-        except Exception as e:
-            if _OTEL_AVAILABLE and hasattr(span, 'record_exception'):
-                span.record_exception(e)
-            logging.error(f"Failed to get appointment {appointment_id}: {str(e)}")
-            raise
+            except CosmosResourceNotFoundError:
+                if _OTEL_AVAILABLE:
+                    span.set_attribute("db.cosmosdb.status", "not_found")
+                logging.warning(f"Appointment with ID {appointment_id} not found")
+                return None
+            except Exception as e:
+                if _OTEL_AVAILABLE and hasattr(span, 'record_exception'):
+                    span.record_exception(e)
+                logging.error(f"Failed to get appointment {appointment_id}: {str(e)}")
+                raise
     
     def get_all_appointments(self, limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
         """Get all appointments with optional pagination"""
-        span = _create_cosmos_span("Query", self.database_name, self.container_name)
-        try:
-            with span:
+        with _create_cosmos_span("Query", self.database_name, self.container_name) as span:
+            try:
                 # Ensure database exists before first operation
                 self._ensure_database_exists()
                 
@@ -194,17 +195,16 @@ class CosmosDBClient:
                     span.set_attribute("db.cosmosdb.item_count", len(items))
                 
                 return items
-        except Exception as e:
-            if _OTEL_AVAILABLE and hasattr(span, 'record_exception'):
-                span.record_exception(e)
-            logging.error(f"Failed to get all appointments: {str(e)}")
-            raise
+            except Exception as e:
+                if _OTEL_AVAILABLE and hasattr(span, 'record_exception'):
+                    span.record_exception(e)
+                logging.error(f"Failed to get all appointments: {str(e)}")
+                raise
     
     def get_appointments_by_date(self, appointment_date: str) -> List[Dict[str, Any]]:
         """Get all appointments for a specific date"""
-        span = _create_cosmos_span("Query", self.database_name, self.container_name)
-        try:
-            with span:
+        with _create_cosmos_span("Query", self.database_name, self.container_name) as span:
+            try:
                 # Ensure database exists before first operation
                 self._ensure_database_exists()
                 
@@ -227,17 +227,16 @@ class CosmosDBClient:
                     span.set_attribute("db.cosmosdb.item_count", len(items))
                 
                 return items
-        except Exception as e:
-            if _OTEL_AVAILABLE and hasattr(span, 'record_exception'):
-                span.record_exception(e)
-            logging.error(f"Failed to get appointments for date {appointment_date}: {str(e)}")
-            raise
+            except Exception as e:
+                if _OTEL_AVAILABLE and hasattr(span, 'record_exception'):
+                    span.record_exception(e)
+                logging.error(f"Failed to get appointments for date {appointment_date}: {str(e)}")
+                raise
     
     def update_appointment(self, appointment_id: str, appointment_date: str, updated_data: Dict[str, Any]) -> Dict[str, Any]:
         """Update an existing appointment"""
-        span = _create_cosmos_span("ReplaceItem", self.database_name, self.container_name, appointment_id)
-        try:
-            with span:
+        with _create_cosmos_span("ReplaceItem", self.database_name, self.container_name, appointment_id) as span:
+            try:
                 # Ensure database exists before first operation
                 self._ensure_database_exists()
                 
@@ -261,17 +260,16 @@ class CosmosDBClient:
                     span.set_attribute("db.cosmosdb.status", "updated")
                 
                 return updated_item
-        except Exception as e:
-            if _OTEL_AVAILABLE and hasattr(span, 'record_exception'):
-                span.record_exception(e)
-            logging.error(f"Failed to update appointment {appointment_id}: {str(e)}")
-            raise
+            except Exception as e:
+                if _OTEL_AVAILABLE and hasattr(span, 'record_exception'):
+                    span.record_exception(e)
+                logging.error(f"Failed to update appointment {appointment_id}: {str(e)}")
+                raise
     
     def delete_appointment(self, appointment_id: str, appointment_date: str) -> bool:
         """Delete an appointment"""
-        span = _create_cosmos_span("DeleteItem", self.database_name, self.container_name, appointment_id)
-        try:
-            with span:
+        with _create_cosmos_span("DeleteItem", self.database_name, self.container_name, appointment_id) as span:
+            try:
                 # Ensure database exists before first operation
                 self._ensure_database_exists()
                 
@@ -287,13 +285,13 @@ class CosmosDBClient:
                     span.set_attribute("db.cosmosdb.status", "deleted")
                 
                 return True
-        except CosmosResourceNotFoundError:
-            if _OTEL_AVAILABLE:
-                span.set_attribute("db.cosmosdb.status", "not_found")
-            logging.warning(f"Appointment with ID {appointment_id} not found")
-            return False
-        except Exception as e:
-            if _OTEL_AVAILABLE and hasattr(span, 'record_exception'):
-                span.record_exception(e)
-            logging.error(f"Failed to delete appointment {appointment_id}: {str(e)}")
-            raise
+            except CosmosResourceNotFoundError:
+                if _OTEL_AVAILABLE:
+                    span.set_attribute("db.cosmosdb.status", "not_found")
+                logging.warning(f"Appointment with ID {appointment_id} not found")
+                return False
+            except Exception as e:
+                if _OTEL_AVAILABLE and hasattr(span, 'record_exception'):
+                    span.record_exception(e)
+                logging.error(f"Failed to delete appointment {appointment_id}: {str(e)}")
+                raise
