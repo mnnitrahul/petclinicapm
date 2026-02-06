@@ -20,7 +20,7 @@ if _connection_string:
         from opentelemetry.sdk.resources import Resource, SERVICE_NAME, SERVICE_VERSION
         from opentelemetry import trace
         from opentelemetry.propagate import extract
-        from opentelemetry.sdk.trace import SpanProcessor, ReadableSpan
+        from opentelemetry.sdk.trace import SpanProcessor
         
         # Get the function app name from environment variables
         # Azure Functions provides WEBSITE_SITE_NAME which is the function app name
@@ -35,40 +35,36 @@ if _connection_string:
             "cloud.platform": "azure_functions",
         })
         
-        def _is_cosmos_http_span(span: ReadableSpan) -> bool:
-            """Check if span is an HTTP call to Cosmos DB"""
-            attrs = dict(span.attributes) if span.attributes else {}
-            url = attrs.get("http.url", "") or attrs.get("url.full", "")
-            peer = attrs.get("net.peer.name", "") or attrs.get("server.address", "")
-            name = span.name or ""
-            return "documents.azure.com" in str(url) or "documents.azure.com" in str(peer) or "documents.azure.com" in name
-        
-        # Custom span processor that drops Cosmos DB HTTP spans
-        class FilteringSpanProcessor(SpanProcessor):
-            """Span processor that filters out Cosmos DB HTTP spans"""
-            def __init__(self, next_processor):
-                self._next = next_processor
-            
+        # Custom span processor to filter out Cosmos DB HTTP spans
+        class CosmosDBHttpFilter(SpanProcessor):
+            """Filter out HTTP spans to Cosmos DB endpoints (documents.azure.com)"""
             def on_start(self, span, parent_context):
-                if self._next:
-                    self._next.on_start(span, parent_context)
+                pass
             
             def on_end(self, span):
-                # Only forward non-Cosmos HTTP spans
-                if not _is_cosmos_http_span(span):
-                    if self._next:
-                        self._next.on_end(span)
+                # Check if this is an HTTP span to Cosmos DB
+                attrs = span.attributes or {}
+                url = attrs.get("http.url", "") or attrs.get("url.full", "")
+                peer = attrs.get("net.peer.name", "") or attrs.get("server.address", "")
+                
+                if "documents.azure.com" in url or "documents.azure.com" in peer:
+                    # Mark span as not sampled to prevent export
+                    span._readable_span._context = trace.SpanContext(
+                        trace_id=span.context.trace_id,
+                        span_id=span.context.span_id,
+                        is_remote=span.context.is_remote,
+                        trace_flags=trace.TraceFlags(0),  # Not sampled
+                        trace_state=span.context.trace_state,
+                    )
             
             def shutdown(self):
-                if self._next:
-                    self._next.shutdown()
+                pass
             
             def force_flush(self, timeout_millis=None):
-                if self._next:
-                    return self._next.force_flush(timeout_millis)
-                return True
+                pass
         
         # Configure Azure Monitor with OpenTelemetry
+        # Cosmos DB has manual tracing in database.py with proper db.system=cosmosdb attributes
         configure_azure_monitor(
             resource=resource,
             enable_live_metrics=True,
@@ -76,6 +72,7 @@ if _connection_string:
                 "azure_sdk": {
                     "enabled": True,
                 },
+                # Disable HTTP client auto-tracking
                 "requests": {"enabled": False},
                 "urllib3": {"enabled": False},
                 "urllib": {"enabled": False},
@@ -83,11 +80,8 @@ if _connection_string:
             },
         )
         
-        # Wrap existing span processors with our filter
-        provider = trace.get_tracer_provider()
-        if hasattr(provider, '_active_span_processor'):
-            original_processor = provider._active_span_processor
-            provider._active_span_processor = FilteringSpanProcessor(original_processor)
+        # Add filter to remove Cosmos DB HTTP spans
+        trace.get_tracer_provider().add_span_processor(CosmosDBHttpFilter())
         
         logging.info(f"✅ OpenTelemetry configured for service: {service_name}")
         logging.info("📊 Tracking: Azure SDK (Blob Storage) + Manual Cosmos DB spans")
@@ -95,13 +89,16 @@ if _connection_string:
         
         # Helper function to extract trace context from incoming request
         def get_trace_context(req):
-            """Extract W3C trace context from incoming HTTP request headers."""
+            """Extract W3C trace context from incoming HTTP request headers.
+            Use this to propagate trace context from APIM to downstream calls.
+            """
             carrier = {
                 "traceparent": req.headers.get("traceparent"),
                 "tracestate": req.headers.get("tracestate"),
             }
             return extract(carrier)
         
+        # Export for use in functions
         _tracer = trace.get_tracer(__name__)
         
     except ImportError as e:
