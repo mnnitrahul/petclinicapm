@@ -32,6 +32,12 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     logging.info(f'Request method: {req.method}')
     logging.info(f'Request URL: {req.url}')
     logging.info(f'Request params: {dict(req.params)}')
+    
+    # Debug: Log trace context headers from APIM
+    traceparent = req.headers.get('traceparent')
+    tracestate = req.headers.get('tracestate')
+    request_id = req.headers.get('Request-Id')  # Legacy header
+    logging.info(f'🔍 Trace headers - traceparent: {traceparent}, tracestate: {tracestate}, Request-Id: {request_id}')
 
     try:
         # Get query parameters for pagination and filtering
