@@ -4,12 +4,13 @@ Azure Function to get all pets from blob storage
 import logging
 import json
 import azure.functions as func
+from opentelemetry import trace, context
 
 # Import telemetry first for dependency tracking
 try:
-    from shared_code import telemetry  # Enables OpenTelemetry dependency tracking
+    from shared_code.telemetry import get_trace_context
 except ImportError:
-    pass  # Telemetry is optional
+    get_trace_context = None
 
 # Import shared modules (Azure Functions compatible way)
 try:
@@ -27,6 +28,12 @@ except ImportError:
 def main(req: func.HttpRequest) -> func.HttpResponse:
     """Main function to handle getting all pets"""
     logging.info('GetAllPets function processed a request.')
+    
+    # Extract and attach trace context from incoming request (APIM)
+    if get_trace_context:
+        ctx = get_trace_context(req)
+        context.attach(ctx)
+        logging.info(f"🔗 Trace context attached from traceparent: {req.headers.get('traceparent')}")
 
     try:
         # Get optional query parameters

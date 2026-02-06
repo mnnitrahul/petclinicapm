@@ -6,12 +6,13 @@ import json
 import uuid
 from datetime import datetime
 import azure.functions as func
+from opentelemetry import context
 
 # Import telemetry first for dependency tracking
 try:
-    from shared_code import telemetry  # Enables OpenTelemetry dependency tracking
+    from shared_code.telemetry import get_trace_context
 except ImportError:
-    pass  # Telemetry is optional
+    get_trace_context = None
 
 # Import shared modules (Azure Functions compatible way)
 try:
@@ -29,6 +30,11 @@ except ImportError:
 def main(req: func.HttpRequest) -> func.HttpResponse:
     """Main function to handle creating a pet"""
     logging.info('CreatePet function processed a request.')
+    
+    # Extract and attach trace context from incoming request (APIM)
+    if get_trace_context:
+        ctx = get_trace_context(req)
+        context.attach(ctx)
 
     try:
         # Get request body

@@ -6,12 +6,13 @@ import json
 from datetime import datetime
 
 import azure.functions as func
+from opentelemetry import context
 
 # Import telemetry first for dependency tracking
 try:
-    from shared_code import telemetry  # Enables OpenTelemetry dependency tracking
+    from shared_code.telemetry import get_trace_context
 except ImportError:
-    pass  # Telemetry is optional
+    get_trace_context = None
 
 # Import shared modules (Azure Functions compatible way)
 try:
@@ -29,15 +30,11 @@ except ImportError:
 def main(req: func.HttpRequest) -> func.HttpResponse:
     """Main function to handle getting all appointments"""
     logging.info('=== GetAllAppointments function START ===')
-    logging.info(f'Request method: {req.method}')
-    logging.info(f'Request URL: {req.url}')
-    logging.info(f'Request params: {dict(req.params)}')
     
-    # Debug: Log trace context headers from APIM
-    traceparent = req.headers.get('traceparent')
-    tracestate = req.headers.get('tracestate')
-    request_id = req.headers.get('Request-Id')  # Legacy header
-    logging.info(f'🔍 Trace headers - traceparent: {traceparent}, tracestate: {tracestate}, Request-Id: {request_id}')
+    # Extract and attach trace context from incoming request (APIM)
+    if get_trace_context:
+        ctx = get_trace_context(req)
+        context.attach(ctx)
 
     try:
         # Get query parameters for pagination and filtering

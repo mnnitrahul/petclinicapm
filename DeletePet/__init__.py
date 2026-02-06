@@ -4,6 +4,13 @@ Azure Function to delete a pet by ID from blob storage
 import logging
 import json
 import azure.functions as func
+from opentelemetry import context
+
+# Import telemetry first for dependency tracking
+try:
+    from shared_code.telemetry import get_trace_context
+except ImportError:
+    get_trace_context = None
 
 # Import shared modules (Azure Functions compatible way)
 try:
@@ -21,6 +28,11 @@ except ImportError:
 def main(req: func.HttpRequest) -> func.HttpResponse:
     """Main function to handle pet deletion"""
     logging.info('DeletePet function processed a request.')
+    
+    # Extract and attach trace context from incoming request (APIM)
+    if get_trace_context:
+        ctx = get_trace_context(req)
+        context.attach(ctx)
 
     try:
         # Get pet ID from route parameter

@@ -18,6 +18,8 @@ if _connection_string:
     try:
         from azure.monitor.opentelemetry import configure_azure_monitor
         from opentelemetry.sdk.resources import Resource, SERVICE_NAME, SERVICE_VERSION
+        from opentelemetry import trace
+        from opentelemetry.propagate import extract
         
         # Get the function app name from environment variables
         # Azure Functions provides WEBSITE_SITE_NAME which is the function app name
@@ -65,9 +67,35 @@ if _connection_string:
         logging.info("📊 Tracking: Azure SDK (Blob Storage) + Manual Cosmos DB spans")
         logging.info(f"ℹ️ Excluded from HTTP tracking: {cosmos_host or 'documents.azure.com'}")
         
+        # Helper function to extract trace context from incoming request
+        def get_trace_context(req):
+            """Extract W3C trace context from incoming HTTP request headers.
+            Use this to propagate trace context from APIM to downstream calls.
+            
+            Usage in function:
+                from shared_code.telemetry import get_trace_context
+                ctx = get_trace_context(req)
+                with tracer.start_as_current_span("my-operation", context=ctx):
+                    # downstream calls will inherit this context
+            """
+            carrier = {
+                "traceparent": req.headers.get("traceparent"),
+                "tracestate": req.headers.get("tracestate"),
+            }
+            return extract(carrier)
+        
+        # Export for use in functions
+        _tracer = trace.get_tracer(__name__)
+        
     except ImportError as e:
         logging.warning(f"⚠️ OpenTelemetry packages not available: {e}")
+        get_trace_context = None
+        _tracer = None
     except Exception as e:
         logging.warning(f"⚠️ OpenTelemetry configuration failed: {e}")
+        get_trace_context = None
+        _tracer = None
 else:
     logging.info("ℹ️ Application Insights not configured - OpenTelemetry tracking disabled")
+    get_trace_context = None
+    _tracer = None
