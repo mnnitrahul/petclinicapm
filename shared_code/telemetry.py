@@ -5,6 +5,7 @@ Import this module to enable Azure SDK auto-instrumentation.
 Environment Variables:
 - APPLICATIONINSIGHTS_CONNECTION_STRING: Required (set automatically by Azure)
 - ENABLE_OPENTELEMETRY: Set to "false" to disable (default: true)
+- WEBSITE_SITE_NAME: Azure provides this automatically (used for cloud_RoleName)
 """
 import os
 import logging
@@ -17,8 +18,15 @@ if _enable_otel == "false":
 elif _connection_string:
     try:
         from azure.monitor.opentelemetry import configure_azure_monitor
-        configure_azure_monitor()
-        logging.info("OpenTelemetry configured for Azure Monitor")
+        from opentelemetry.sdk.resources import Resource, SERVICE_NAME
+        
+        # Get service name from Azure (WEBSITE_SITE_NAME is set by Azure Functions runtime)
+        service_name = os.environ.get("WEBSITE_SITE_NAME", "unknown_service")
+        
+        configure_azure_monitor(
+            resource=Resource.create({SERVICE_NAME: service_name})
+        )
+        logging.info(f"OpenTelemetry configured for service: {service_name}")
     except Exception as e:
         logging.warning(f"OpenTelemetry configuration failed: {e}")
 else:
