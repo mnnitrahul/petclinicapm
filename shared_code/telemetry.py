@@ -55,12 +55,12 @@ elif _connection_string:
         
         @contextmanager
         def trace_context_manager(req, span_name="FunctionExecution"):
-            """Context manager that creates a child span under Azure Functions' request span.
+            """Context manager that extracts APIM trace context and creates a child span.
             
-            Azure Functions runtime already extracts traceparent from APIM and creates
-            a request span. This creates a CHILD span under that request span, ensuring:
-            - Proper parent-child hierarchy: APIM → Function Request → This Span → SDK calls
-            - All Azure SDK calls (Cosmos DB, Blob Storage) inherit the trace context
+            This ensures all operations within the context share the same trace ID:
+            - Extracts traceparent header from APIM
+            - Creates a span as a child of the APIM span
+            - All Azure SDK calls (Cosmos DB, Blob Storage) inherit this trace context
             
             Usage:
                 from shared_code.telemetry import trace_context_manager
@@ -70,9 +70,15 @@ elif _connection_string:
                         # All Azure SDK calls here will have same operation_id
                         result = cosmos_client.get_all_appointments()
             """
-            # Create a child span of the current context (Azure Functions request span)
-            # Do NOT use context=parent_ctx - that would make this a sibling of the Function Request
-            with _tracer.start_as_current_span(span_name) as span:
+            # Extract trace context from incoming request headers (from APIM)
+            parent_ctx = extract({
+                "traceparent": req.headers.get("traceparent"),
+                "tracestate": req.headers.get("tracestate"),
+            })
+            
+            # Start span with the extracted APIM context as parent
+            # This links: APIM → This Span → SDK calls (all same trace_id)
+            with _tracer.start_as_current_span(span_name, context=parent_ctx) as span:
                 # Log trace info for debugging
                 span_context = span.get_span_context()
                 if span_context.is_valid:
