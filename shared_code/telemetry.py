@@ -9,12 +9,14 @@ Environment Variables:
 """
 import os
 import logging
+from contextlib import contextmanager
 
 _enable_otel = os.environ.get("ENABLE_OPENTELEMETRY", "true").lower()
 _connection_string = os.environ.get("APPLICATIONINSIGHTS_CONNECTION_STRING")
 
 # Initialize exports with None defaults
 get_trace_context = None
+trace_context_manager = None
 
 if _enable_otel == "false":
     logging.info("OpenTelemetry disabled via ENABLE_OPENTELEMETRY=false")
@@ -22,6 +24,7 @@ elif _connection_string:
     try:
         from azure.monitor.opentelemetry import configure_azure_monitor
         from opentelemetry.sdk.resources import Resource, SERVICE_NAME
+        from opentelemetry import trace, context as otel_context
         from opentelemetry.propagate import extract
         
         # Get service name from Azure (WEBSITE_SITE_NAME is set by Azure Functions runtime)
@@ -32,19 +35,17 @@ elif _connection_string:
         )
         logging.info(f"OpenTelemetry configured for service: {service_name}")
         
-        # Helper function to extract trace context from incoming request (APIM)
+        # Get tracer for creating spans
+        _tracer = trace.get_tracer(__name__)
+        
         def get_trace_context(req):
             """Extract W3C trace context from incoming HTTP request headers.
             
-            API Management sends traceparent header. Use this to propagate
-            the trace context so downstream calls share the same trace ID.
+            API Management sends traceparent header. This extracts it into
+            an OpenTelemetry context object.
             
-            Usage in function:
-                from shared_code.telemetry import get_trace_context
-                from opentelemetry import context
-                
-                ctx = get_trace_context(req)
-                context.attach(ctx)
+            Returns:
+                Context object that can be used with context.attach() or trace_context_manager()
             """
             carrier = {
                 "traceparent": req.headers.get("traceparent"),
@@ -52,7 +53,45 @@ elif _connection_string:
             }
             return extract(carrier)
         
+        @contextmanager
+        def trace_context_manager(req, span_name="FunctionExecution"):
+            """Context manager that extracts trace context and creates a root span.
+            
+            This ensures all downstream Azure SDK calls (Cosmos DB, Blob Storage)
+            inherit the trace ID from APIM.
+            
+            Usage:
+                from shared_code.telemetry import trace_context_manager
+                
+                def main(req):
+                    with trace_context_manager(req, "GetAllAppointments"):
+                        # All Azure SDK calls here will have same operation_id
+                        result = cosmos_client.get_all_appointments()
+            """
+            # Extract context from APIM headers
+            carrier = {
+                "traceparent": req.headers.get("traceparent"),
+                "tracestate": req.headers.get("tracestate"),
+            }
+            parent_ctx = extract(carrier)
+            
+            # Start a span with the extracted parent context
+            # This span becomes the current span, and all child spans inherit from it
+            with _tracer.start_as_current_span(span_name, context=parent_ctx) as span:
+                # Log trace info for debugging
+                span_context = span.get_span_context()
+                if span_context.is_valid:
+                    logging.info(f"Trace context: trace_id={format(span_context.trace_id, '032x')}")
+                yield span
+        
     except Exception as e:
         logging.warning(f"OpenTelemetry configuration failed: {e}")
 else:
     logging.info("Application Insights not configured - skipping OpenTelemetry")
+
+# Provide a no-op context manager when OTel is disabled
+if trace_context_manager is None:
+    @contextmanager
+    def trace_context_manager(req, span_name="FunctionExecution"):
+        """No-op context manager when OpenTelemetry is disabled."""
+        yield None
