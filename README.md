@@ -128,6 +128,112 @@ This repository uses `APPOINTMENT_API_GUIDE.md` as its comprehensive knowledge b
 - **Document all environment variables** and configuration changes
 - **Update troubleshooting section** with new known issues
 
+## 🔍 Distributed Tracing (APIM Integration)
+
+### ⚠️ Critical: Trace Context Propagation
+
+When Azure Functions are behind API Management (APIM) with Application Insights enabled, **you must explicitly propagate the trace context** to maintain end-to-end tracing.
+
+**Without proper propagation:**
+- APIM and Function traces have different `operation_Id` values
+- Application Map shows disconnected nodes
+- End-to-end transaction search doesn't work
+
+### Required Implementation
+
+Every HTTP-triggered function must include this at the start:
+
+```python
+from shared_code.telemetry import get_trace_context
+from opentelemetry import context
+
+def main(req: func.HttpRequest) -> func.HttpResponse:
+    # Extract and attach trace context from APIM
+    if get_trace_context:
+        ctx = get_trace_context(req)
+        context.attach(ctx)
+    
+    # Rest of your function code...
+```
+
+### How It Works
+
+1. APIM sends `traceparent` header: `00-{trace_id}-{span_id}-{flags}`
+2. `get_trace_context()` extracts this W3C trace context
+3. `context.attach()` sets it as the current context
+4. All downstream calls (Cosmos DB, Blob Storage) inherit this trace ID
+
+### Validate Traces in Application Insights
+
+**Query to check if traces are properly connected:**
+
+```kql
+// Find requests from APIM and their downstream dependencies
+let apimRequests = requests
+| where timestamp > ago(1h)
+| where cloud_RoleName == "petclinic-apim"  // or your APIM name
+| project operation_Id, apim_timestamp = timestamp, apim_name = name;
+
+let functionRequests = requests
+| where timestamp > ago(1h)
+| where cloud_RoleName in ("petclinic-apm-function-app", "petclinic-apm-function-app2")
+| project operation_Id, func_timestamp = timestamp, func_name = name;
+
+let dependencies = dependencies
+| where timestamp > ago(1h)
+| where cloud_RoleName in ("petclinic-apm-function-app", "petclinic-apm-function-app2")
+| project operation_Id, dep_timestamp = timestamp, dep_target = target, dep_type = type;
+
+// Join to see if they share the same operation_Id
+apimRequests
+| join kind=inner functionRequests on operation_Id
+| join kind=inner dependencies on operation_Id
+| project operation_Id, apim_name, func_name, dep_target, dep_type
+| take 50
+```
+
+**If traces are broken (different operation_Id), you'll see:**
+- Empty results from the join
+- APIM requests with one operation_Id
+- Function requests with a different operation_Id
+
+**Query to find broken traces:**
+
+```kql
+// Find function requests that DON'T have matching APIM requests
+requests
+| where timestamp > ago(1h)
+| where cloud_RoleName in ("petclinic-apm-function-app", "petclinic-apm-function-app2")
+| join kind=leftanti (
+    requests
+    | where timestamp > ago(1h)
+    | where cloud_RoleName == "petclinic-apim"
+) on operation_Id
+| project timestamp, name, operation_Id, cloud_RoleName
+| order by timestamp desc
+| take 20
+```
+
+### Expected Trace Flow
+
+```
+APIM Request (operation_Id: abc123)
+└── Function Request (operation_Id: abc123)  ← Same ID = CORRECT
+    └── Cosmos DB HTTP (operation_Id: abc123)
+    └── Blob Storage HTTP (operation_Id: abc123)
+```
+
+### Common Mistakes
+
+| Mistake | Result | Fix |
+|---------|--------|-----|
+| Missing `get_trace_context` import | Broken traces | Add import from `shared_code.telemetry` |
+| Not calling `context.attach()` | Broken traces | Call after `get_trace_context(req)` |
+| Attaching context after async call | Partial traces | Attach context at function start |
+| `ENABLE_OPENTELEMETRY=false` | No OTel traces | Remove or set to `true` |
+
+---
+
 ## 🤝 Contributing
 
 1. Review the [API Guide](APPOINTMENT_API_GUIDE.md) to understand the system
