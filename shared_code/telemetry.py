@@ -55,10 +55,12 @@ elif _connection_string:
         
         @contextmanager
         def trace_context_manager(req, span_name="FunctionExecution"):
-            """Context manager that extracts trace context and creates a root span.
+            """Context manager that creates a child span under Azure Functions' request span.
             
-            This ensures all downstream Azure SDK calls (Cosmos DB, Blob Storage)
-            inherit the trace ID from APIM.
+            Azure Functions runtime already extracts traceparent from APIM and creates
+            a request span. This creates a CHILD span under that request span, ensuring:
+            - Proper parent-child hierarchy: APIM → Function Request → This Span → SDK calls
+            - All Azure SDK calls (Cosmos DB, Blob Storage) inherit the trace context
             
             Usage:
                 from shared_code.telemetry import trace_context_manager
@@ -68,20 +70,13 @@ elif _connection_string:
                         # All Azure SDK calls here will have same operation_id
                         result = cosmos_client.get_all_appointments()
             """
-            # Extract context from APIM headers
-            carrier = {
-                "traceparent": req.headers.get("traceparent"),
-                "tracestate": req.headers.get("tracestate"),
-            }
-            parent_ctx = extract(carrier)
-            
-            # Start a span with the extracted parent context
-            # This span becomes the current span, and all child spans inherit from it
-            with _tracer.start_as_current_span(span_name, context=parent_ctx) as span:
+            # Create a child span of the current context (Azure Functions request span)
+            # Do NOT use context=parent_ctx - that would make this a sibling of the Function Request
+            with _tracer.start_as_current_span(span_name) as span:
                 # Log trace info for debugging
                 span_context = span.get_span_context()
                 if span_context.is_valid:
-                    logging.info(f"Trace context: trace_id={format(span_context.trace_id, '032x')}")
+                    logging.info(f"Trace context: trace_id={format(span_context.trace_id, '032x')}, span_id={format(span_context.span_id, '016x')}")
                 yield span
         
     except Exception as e:
