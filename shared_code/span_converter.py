@@ -237,8 +237,9 @@ def add_span_attributes(span, azure_data):
     
     if telemetry_type == 'AppDependencies':
         if dependency_type == 'InProc':
-            # InProc spans are internal - no aws.local.operation
+            # InProc spans are internal
             add_string('aws.span.kind', 'INTERNAL')
+            add_string('aws.local.operation', name)
         else:
             # CLIENT spans - no aws.local.operation
             add_string('aws.span.kind', 'CLIENT')
@@ -260,10 +261,83 @@ def add_span_attributes(span, azure_data):
             if resource_id:
                 add_string('aws.remote.resource.identifier', resource_id)
         
+        # Common AppDependencies fields
+        add_string('app.version', azure_data.get('AppVersion'))
+        add_int('billed.size', azure_data.get('_BilledSize'))
+        add_string('client.browser', azure_data.get('ClientBrowser'))
+        add_string('client.city', azure_data.get('ClientCity'))
+        add_string('client.country.or.region', azure_data.get('ClientCountryOrRegion'))
+        add_string('client.ip', azure_data.get('ClientIP'))
+        add_string('client.model', azure_data.get('ClientModel'))
+        add_string('client.os', azure_data.get('ClientOS'))
+        add_string('client.state.or.province', azure_data.get('ClientStateOrProvince'))
+        add_string('client.type', azure_data.get('ClientType'))
+        add_string('data', azure_data.get('Data'))
+        add_string('ikey', azure_data.get('IKey'))
+        add_string('is.billable', azure_data.get('_IsBillable'))
+        add_int('item.count', azure_data.get('ItemCount'))
+        add_string('operation.name', azure_data.get('OperationName'))
+        add_string('referenced.item.id', azure_data.get('ReferencedItemId'))
+        add_string('referenced.type', azure_data.get('ReferencedType'))
+        add_string('resource.guid', azure_data.get('ResourceGUID'))
+        add_string('azure.resource.id', azure_data.get('_ResourceId'))
+        add_string('sdk.version', azure_data.get('SDKVersion'))
+        add_string('session.id', azure_data.get('SessionId'))
+        add_string('source.system', azure_data.get('SourceSystem'))
+        add_string('subscription.id', azure_data.get('_SubscriptionId'))
+        add_string('synthetic.source', azure_data.get('SyntheticSource'))
+        add_string('tenant.id', azure_data.get('TenantId'))
+        add_string('user.account.id', azure_data.get('UserAccountId'))
+        add_string('user.authenticated.id', azure_data.get('UserAuthenticatedId'))
+        add_string('user.id', azure_data.get('UserId'))
+        # Dynamic fields as JSON strings
+        measurements = azure_data.get('Measurements')
+        if measurements:
+            add_string('measurements', json.dumps(measurements) if isinstance(measurements, dict) else str(measurements))
+        properties = azure_data.get('Properties')
+        if properties:
+            add_string('properties', json.dumps(properties) if isinstance(properties, dict) else str(properties))
     elif telemetry_type == 'AppRequests':
         add_string('aws.local.operation', name)
         add_string('aws.span.kind', 'SERVER')
-    
+        add_string('client.browser', azure_data.get('ClientBrowser'))
+        add_string('client.city', azure_data.get('ClientCity'))
+        add_string('client.country.or.region', azure_data.get('ClientCountryOrRegion'))
+        add_string('client.ip', azure_data.get('ClientIP'))
+        add_string('client.model', azure_data.get('ClientModel'))
+        add_string('client.os', azure_data.get('ClientOS'))
+        add_string('client.state.or.province', azure_data.get('ClientStateOrProvince'))
+        add_string('client.type', azure_data.get('ClientType'))
+        add_string('ikey', azure_data.get('IKey'))
+        add_string('item.count', azure_data.get('ItemCount'))
+        add_string('operation.name', azure_data.get('OperationName'))
+        add_string('performance.bucket', azure_data.get('PerformanceBucket'))
+        add_string('resource.guid', azure_data.get('ResourceGUID'))
+        add_string('sdk.version', azure_data.get('SDKVersion'))
+        add_string('resource.id', azure_data.get('resourceId'))
+        add_int('billed.size', azure_data.get('_BilledSize'))
+        add_string('app.version', azure_data.get('AppVersion'))
+        add_string('is.billable', azure_data.get('_IsBillable'))
+        add_string('referenced.item.id', azure_data.get('ReferencedItemId'))
+        add_string('referenced.type', azure_data.get('ReferencedType'))
+        add_string('azure.resource.id', azure_data.get('_ResourceId'))
+        add_string('session.id', azure_data.get('SessionId'))
+        add_string('source', azure_data.get('Source'))
+        add_string('source.system', azure_data.get('SourceSystem'))
+        add_string('subscription.id', azure_data.get('_SubscriptionId'))
+        add_string('synthetic.source', azure_data.get('SyntheticSource'))
+        add_string('tenant.id', azure_data.get('TenantId'))
+        add_string('user.account.id', azure_data.get('UserAccountId'))
+        add_string('user.authenticated.id', azure_data.get('UserAuthenticatedId'))
+        add_string('user.id', azure_data.get('UserId'))
+        # Dynamic fields as JSON strings
+        measurements = azure_data.get('Measurements')
+        if measurements:
+            add_string('measurements', json.dumps(measurements) if isinstance(measurements, dict) else str(measurements))
+        properties = azure_data.get('Properties')
+        if properties:
+            add_string('properties', json.dumps(properties) if isinstance(properties, dict) else str(properties))
+
     # HTTP attributes
     parts = name.split(' ', 1)
     if parts[0] in ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS']:
