@@ -26,6 +26,7 @@ elif _connection_string:
         from opentelemetry.sdk.resources import Resource, SERVICE_NAME
         from opentelemetry import trace, context as otel_context
         from opentelemetry.propagate import extract
+        from opentelemetry.trace import SpanKind
         
         # Get service name from Azure (WEBSITE_SITE_NAME is set by Azure Functions runtime)
         service_name = os.environ.get("WEBSITE_SITE_NAME", "unknown_service")
@@ -77,8 +78,9 @@ elif _connection_string:
             })
             
             # Start span with the extracted APIM context as parent
-            # This links: APIM → This Span → SDK calls (all same trace_id)
-            with _tracer.start_as_current_span(span_name, context=parent_ctx) as span:
+            # SpanKind.SERVER creates Request telemetry in Application Insights
+            # This links: APIM → This Span (Request) → SDK calls (all same trace_id)
+            with _tracer.start_as_current_span(span_name, context=parent_ctx, kind=SpanKind.SERVER) as span:
                 # Log trace info for debugging
                 span_context = span.get_span_context()
                 if span_context.is_valid:
