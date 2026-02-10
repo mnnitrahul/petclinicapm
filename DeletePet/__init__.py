@@ -4,13 +4,12 @@ Azure Function to delete a pet by ID from blob storage
 import logging
 import json
 import azure.functions as func
-from opentelemetry import context
 
 # Import telemetry first for dependency tracking
 try:
-    from shared_code.telemetry import get_trace_context
+    from shared_code.telemetry import trace_context_manager
 except ImportError:
-    get_trace_context = None
+    trace_context_manager = None
 
 # Import shared modules (Azure Functions compatible way)
 try:
@@ -29,99 +28,96 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     """Main function to handle pet deletion"""
     logging.info('DeletePet function processed a request.')
     
-    # Extract and attach trace context from incoming request (APIM)
-    if get_trace_context:
-        ctx = get_trace_context(req)
-        context.attach(ctx)
-
-    try:
-        # Get pet ID from route parameter
-        pet_id = req.route_params.get('id')
-        
-        if not pet_id:
-            return func.HttpResponse(
-                json.dumps(create_error_response("Pet ID is required")),
-                status_code=400,
-                mimetype="application/json"
-            )
-
-        logging.info(f"Attempting to delete pet with ID: {pet_id}")
-
-        # Initialize Blob Storage client
+    # Use trace_context_manager to ensure all Azure SDK calls inherit APIM trace context
+    with trace_context_manager(req, "DeletePet"):
         try:
-            blob_client = BlobStorageClient()
-        except ValueError as e:
-            logging.error(f"Blob Storage configuration error: {str(e)}")
-            return func.HttpResponse(
-                json.dumps({
-                    "success": False,
-                    "message": "Blob Storage configuration error. Please check environment variables."
-                }),
-                status_code=500,
-                mimetype="application/json"
-            )
-        except Exception as e:
-            logging.error(f"Blob Storage connection error: {str(e)}")
-            return func.HttpResponse(
-                json.dumps({
-                    "success": False,
-                    "message": "Blob Storage connection error"
-                }),
-                status_code=500,
-                mimetype="application/json"
-            )
-
-        # Check if pet exists before deletion (optional verification)
-        try:
-            existing_pet = blob_client.get_pet_by_id(pet_id)
-            if not existing_pet:
-                logging.warning(f"Pet with ID {pet_id} not found")
-                return func.HttpResponse(
-                    json.dumps(create_error_response(f"Pet with ID {pet_id} not found")),
-                    status_code=404,
-                    mimetype="application/json"
-                )
-
-            # Delete the pet
-            deleted = blob_client.delete_pet(pet_id)
+            # Get pet ID from route parameter
+            pet_id = req.route_params.get('id')
             
-            if deleted:
-                logging.info(f"Successfully deleted pet with ID: {pet_id}")
-                
-                response = create_success_response(
-                    f"Pet with ID {pet_id} deleted successfully",
-                    {"id": pet_id, "name": existing_pet.get("name", "")}
-                )
-                
+            if not pet_id:
                 return func.HttpResponse(
-                    json.dumps(response),
-                    status_code=200,
+                    json.dumps(create_error_response("Pet ID is required")),
+                    status_code=400,
                     mimetype="application/json"
                 )
-            else:
-                # This shouldn't happen since we found it above, but handle it gracefully
-                logging.warning(f"Failed to delete pet {pet_id} - not found during deletion")
+
+            logging.info(f"Attempting to delete pet with ID: {pet_id}")
+
+            # Initialize Blob Storage client
+            try:
+                blob_client = BlobStorageClient()
+            except ValueError as e:
+                logging.error(f"Blob Storage configuration error: {str(e)}")
                 return func.HttpResponse(
-                    json.dumps(create_error_response(f"Pet with ID {pet_id} not found")),
-                    status_code=404,
+                    json.dumps({
+                        "success": False,
+                        "message": "Blob Storage configuration error. Please check environment variables."
+                    }),
+                    status_code=500,
+                    mimetype="application/json"
+                )
+            except Exception as e:
+                logging.error(f"Blob Storage connection error: {str(e)}")
+                return func.HttpResponse(
+                    json.dumps({
+                        "success": False,
+                        "message": "Blob Storage connection error"
+                    }),
+                    status_code=500,
+                    mimetype="application/json"
+                )
+
+            # Check if pet exists before deletion (optional verification)
+            try:
+                existing_pet = blob_client.get_pet_by_id(pet_id)
+                if not existing_pet:
+                    logging.warning(f"Pet with ID {pet_id} not found")
+                    return func.HttpResponse(
+                        json.dumps(create_error_response(f"Pet with ID {pet_id} not found")),
+                        status_code=404,
+                        mimetype="application/json"
+                    )
+
+                # Delete the pet
+                deleted = blob_client.delete_pet(pet_id)
+                
+                if deleted:
+                    logging.info(f"Successfully deleted pet with ID: {pet_id}")
+                    
+                    response = create_success_response(
+                        f"Pet with ID {pet_id} deleted successfully",
+                        {"id": pet_id, "name": existing_pet.get("name", "")}
+                    )
+                    
+                    return func.HttpResponse(
+                        json.dumps(response),
+                        status_code=200,
+                        mimetype="application/json"
+                    )
+                else:
+                    # This shouldn't happen since we found it above, but handle it gracefully
+                    logging.warning(f"Failed to delete pet {pet_id} - not found during deletion")
+                    return func.HttpResponse(
+                        json.dumps(create_error_response(f"Pet with ID {pet_id} not found")),
+                        status_code=404,
+                        mimetype="application/json"
+                    )
+
+            except Exception as e:
+                logging.error(f"Failed to delete pet {pet_id}: {str(e)}")
+                return func.HttpResponse(
+                    json.dumps(create_error_response("Failed to delete pet. Please try again.")),
+                    status_code=500,
                     mimetype="application/json"
                 )
 
         except Exception as e:
-            logging.error(f"Failed to delete pet {pet_id}: {str(e)}")
+            logging.error(f"Unexpected error in DeletePet: {str(e)}")
             return func.HttpResponse(
-                json.dumps(create_error_response("Failed to delete pet. Please try again.")),
+                json.dumps({
+                    "success": False,
+                    "message": "An unexpected error occurred"
+                }),
                 status_code=500,
                 mimetype="application/json"
             )
-
-    except Exception as e:
-        logging.error(f"Unexpected error in DeletePet: {str(e)}")
-        return func.HttpResponse(
-            json.dumps({
-                "success": False,
-                "message": "An unexpected error occurred"
-            }),
-            status_code=500,
-            mimetype="application/json"
-        )
