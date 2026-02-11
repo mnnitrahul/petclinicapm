@@ -9,3 +9,5 @@ python-dateutil==2.8.2
 # OpenTelemetry for dependency tracking (Azure Monitor integration)
 # azure-monitor-opentelemetry includes Azure SDK auto-instrumentation
 azure-monitor-opentelemetry
+flask>=2.0.0
+gunicorn>=20.0.0
