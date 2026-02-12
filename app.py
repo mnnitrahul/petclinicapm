@@ -46,7 +46,7 @@ def get_appointments():
             return {'error': 'AZURE_COSMOS_CONNECTIONSTRING not configured'}, 500
         
         client = MongoClient(connection_string)
-        db = client[os.environ.get('COSMOS_DB_DATABASE', 'petclinic')]
+        db = client.get_default_database()
         collection = db[os.environ.get('COSMOS_DB_CONTAINER', 'appointments')]
         
         items = list(collection.find({}, {'_id': 0}).limit(10))
