@@ -13,7 +13,9 @@ if conn_string:
     try:
         from azure.monitor.opentelemetry import configure_azure_monitor
         from opentelemetry.instrumentation.flask import FlaskInstrumentor
+        from opentelemetry.instrumentation.pymongo import PymongoInstrumentor
         configure_azure_monitor()
+        PymongoInstrumentor().instrument()
         logger.info("Azure Monitor configured successfully")
     except Exception as e:
         logger.error(f"Failed to configure Azure Monitor: {e}")
