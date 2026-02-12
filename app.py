@@ -1,6 +1,6 @@
 import os
 from flask import Flask
-from azure.cosmos import CosmosClient
+from pymongo import MongoClient
 
 app = Flask(__name__)
 
@@ -15,16 +15,15 @@ def health():
 @app.route('/api/appointments')
 def get_appointments():
     try:
-        endpoint = os.environ.get('COSMOS_DB_ENDPOINT', 'https://apmwebapp-server.documents.azure.com:443/')
-        key = os.environ.get('COSMOS_DB_KEY')
-        if not key:
-            return {'error': 'COSMOS_DB_KEY not configured'}, 500
+        connection_string = os.environ.get('AZURE_COSMOS_CONNECTIONSTRING')
+        if not connection_string:
+            return {'error': 'AZURE_COSMOS_CONNECTIONSTRING not configured'}, 500
         
-        client = CosmosClient(endpoint, key)
-        database = client.get_database_client(os.environ.get('COSMOS_DB_DATABASE', 'petclinic'))
-        container = database.get_container_client(os.environ.get('COSMOS_DB_CONTAINER', 'appointments'))
+        client = MongoClient(connection_string)
+        db = client[os.environ.get('COSMOS_DB_DATABASE', 'petclinic')]
+        collection = db[os.environ.get('COSMOS_DB_CONTAINER', 'appointments')]
         
-        items = list(container.query_items('SELECT * FROM c', enable_cross_partition_query=True, max_item_count=10))
+        items = list(collection.find({}, {'_id': 0}).limit(10))
         return {'appointments': items}
     except Exception as e:
         return {'error': str(e)}, 500
