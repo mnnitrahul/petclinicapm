@@ -12,12 +12,21 @@ logger.info(f"APPLICATIONINSIGHTS_CONNECTION_STRING present: {bool(conn_string)}
 if conn_string:
     try:
         from azure.monitor.opentelemetry import configure_azure_monitor
+        from opentelemetry.instrumentation.flask import FlaskInstrumentor
         configure_azure_monitor()
         logger.info("Azure Monitor configured successfully")
     except Exception as e:
         logger.error(f"Failed to configure Azure Monitor: {e}")
 
 app = Flask(__name__)
+
+# Instrument Flask after app is created
+if conn_string:
+    try:
+        FlaskInstrumentor().instrument_app(app)
+        logger.info("Flask instrumentation enabled")
+    except Exception as e:
+        logger.error(f"Failed to instrument Flask: {e}")
 
 @app.route('/api/hello')
 def hello():
