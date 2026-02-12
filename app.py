@@ -1,10 +1,21 @@
 import os
+import logging
 from flask import Flask
 from pymongo import MongoClient
-from azure.monitor.opentelemetry import configure_azure_monitor
 
-if os.environ.get('APPLICATIONINSIGHTS_CONNECTION_STRING'):
-    configure_azure_monitor()
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+conn_string = os.environ.get('APPLICATIONINSIGHTS_CONNECTION_STRING')
+logger.info(f"APPLICATIONINSIGHTS_CONNECTION_STRING present: {bool(conn_string)}")
+
+if conn_string:
+    try:
+        from azure.monitor.opentelemetry import configure_azure_monitor
+        configure_azure_monitor()
+        logger.info("Azure Monitor configured successfully")
+    except Exception as e:
+        logger.error(f"Failed to configure Azure Monitor: {e}")
 
 app = Flask(__name__)
 
