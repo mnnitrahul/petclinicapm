@@ -1,6 +1,10 @@
 import os
 from flask import Flask
 from pymongo import MongoClient
+from azure.monitor.opentelemetry import configure_azure_monitor
+
+if os.environ.get('APPLICATIONINSIGHTS_CONNECTION_STRING'):
+    configure_azure_monitor()
 
 app = Flask(__name__)
 
