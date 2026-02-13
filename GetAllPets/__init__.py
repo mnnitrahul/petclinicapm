@@ -3,13 +3,18 @@ Azure Function to get all pets from blob storage
 """
 import logging
 import json
+import requests
 import azure.functions as func
 
 # Import telemetry first for dependency tracking
 try:
     from shared_code.telemetry import trace_context_manager
+    from opentelemetry.propagate import inject
 except ImportError:
     trace_context_manager = None
+    inject = None
+
+AWS_API_ENDPOINT = "https://nzqxctynsd.execute-api.us-east-1.amazonaws.com/dev/lambda"
 
 # Import shared modules (Azure Functions compatible way)
 try:
@@ -103,6 +108,20 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                 )
 
                 logging.info(f"✅ Returning success response with {len(pets)} pets")
+                
+                # Call AWS API Gateway with trace context
+                aws_response = None
+                try:
+                    headers = {"Content-Type": "application/json"}
+                    if inject:
+                        inject(headers)
+                    resp = requests.get(AWS_API_ENDPOINT, headers=headers, timeout=30)
+                    aws_response = {"status": resp.status_code, "body": resp.json() if "application/json" in resp.headers.get("content-type", "") else resp.text}
+                except Exception as e:
+                    aws_response = {"error": str(e)}
+                
+                response["aws_call"] = aws_response
+                
                 return func.HttpResponse(
                     json.dumps(response),
                     status_code=200,
