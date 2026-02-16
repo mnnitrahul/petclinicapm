@@ -25,8 +25,18 @@ elif _connection_string:
         from azure.monitor.opentelemetry import configure_azure_monitor
         from opentelemetry.sdk.resources import Resource, SERVICE_NAME
         from opentelemetry import trace, context as otel_context
-        from opentelemetry.propagate import extract
+        from opentelemetry.propagate import extract, set_global_textmap
         from opentelemetry.trace import SpanKind
+        from opentelemetry.propagators.composite import CompositePropagator
+        from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
+        from opentelemetry.propagators.aws import AwsXRayPropagator
+        
+        # Configure propagators: W3C traceparent + X-Ray header
+        set_global_textmap(CompositePropagator([
+            TraceContextTextMapPropagator(),
+            AwsXRayPropagator(),
+        ]))
+        logging.info("Configured W3C + X-Ray propagators")
         
         # Get service name from Azure (WEBSITE_SITE_NAME is set by Azure Functions runtime)
         service_name = os.environ.get("WEBSITE_SITE_NAME", "unknown_service")
