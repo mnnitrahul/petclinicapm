@@ -116,6 +116,18 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                     if inject:
                         inject(headers)
                         logging.info(f"Injected traceparent: {headers.get('traceparent')}")
+                        # Convert W3C traceparent to X-Amzn-Trace-Id for API Gateway
+                        traceparent = headers.get('traceparent')
+                        if traceparent:
+                            parts = traceparent.split('-')
+                            if len(parts) == 4:
+                                trace_id = parts[1]  # 32 hex chars
+                                span_id = parts[2]   # 16 hex chars
+                                sampled = '1' if parts[3] == '01' else '0'
+                                # Format: Root=1-{first 8 chars}-{remaining 24 chars};Parent={span_id};Sampled={0|1}
+                                xray_trace_id = f"Root=1-{trace_id[:8]}-{trace_id[8:]};Parent={span_id};Sampled={sampled}"
+                                headers['X-Amzn-Trace-Id'] = xray_trace_id
+                                logging.info(f"Converted to X-Amzn-Trace-Id: {xray_trace_id}")
                     else:
                         logging.warning("inject is None - trace context not propagated")
                     resp = requests.get(AWS_API_ENDPOINT, headers=headers, timeout=30)
@@ -124,7 +136,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                     aws_response = {"error": str(e)}
                 
                 response["aws_call"] = aws_response
-                response["trace_headers_sent"] = {"traceparent": headers.get("traceparent"), "tracestate": headers.get("tracestate")}
+                response["trace_headers_sent"] = {"traceparent": headers.get("traceparent"), "tracestate": headers.get("tracestate"), "x-amzn-trace-id": headers.get("X-Amzn-Trace-Id")}
                 
                 return func.HttpResponse(
                     json.dumps(response),
