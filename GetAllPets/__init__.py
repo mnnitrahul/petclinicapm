@@ -115,12 +115,16 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                     headers = {"Content-Type": "application/json"}
                     if inject:
                         inject(headers)
+                        logging.info(f"Injected traceparent: {headers.get('traceparent')}")
+                    else:
+                        logging.warning("inject is None - trace context not propagated")
                     resp = requests.get(AWS_API_ENDPOINT, headers=headers, timeout=30)
                     aws_response = {"status": resp.status_code, "body": resp.json() if "application/json" in resp.headers.get("content-type", "") else resp.text}
                 except Exception as e:
                     aws_response = {"error": str(e)}
                 
                 response["aws_call"] = aws_response
+                response["trace_headers_sent"] = {"traceparent": headers.get("traceparent"), "tracestate": headers.get("tracestate")}
                 
                 return func.HttpResponse(
                     json.dumps(response),
