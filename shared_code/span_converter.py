@@ -66,15 +66,15 @@ def otel_span_converter(event, context):
                 'aws.local.environment': 'generic:default',
                 'aws.local.operation': span_name,
                 'PlatformType': 'Generic',
-                'kind': 'SERVER' if span_type == 'AppRequests' else ('INTERNAL' if dependency_type == 'InProc' else 'CLIENT'),
-                'aws.span.kind': 'SERVER' if span_type == 'AppRequests' else ('INTERNAL' if dependency_type == 'InProc' else 'CLIENT'),
+                'kind': 'SERVER' if span_type == 'AppRequests' else ('INTERNAL' if 'InProc' in dependency_type else 'CLIENT'),
+                'aws.span.kind': 'SERVER' if span_type == 'AppRequests' else ('INTERNAL' if 'InProc' in dependency_type else 'CLIENT'),
                 'http.status_code': int(result_code) if result_code.isdigit() else None,
                 'http.response.status_code': int(result_code) if result_code.isdigit() else None,
                 'http.url': url
             }
             
             # Add remote fields for CLIENT spans
-            if span_type == 'AppDependencies' and dependency_type != 'InProc':
+            if span_type == 'AppDependencies' and 'InProc' not in dependency_type:
                 remote_service = derive_remote_service(dependency_type, target, span_name)
                 resource_type, resource_id = get_remote_resource(dependency_type, target, azure_data)
                 transformed['aws.remote.service'] = remote_service
@@ -168,7 +168,7 @@ def convert_to_otlp_span(azure_data):
     if telemetry_type == 'AppRequests':
         kind = Span.SPAN_KIND_SERVER
     elif telemetry_type == 'AppDependencies':
-        if dependency_type == 'InProc':
+        if 'InProc' in dependency_type:
             kind = Span.SPAN_KIND_INTERNAL
         else:
             kind = Span.SPAN_KIND_CLIENT
@@ -236,7 +236,7 @@ def add_span_attributes(span, azure_data):
     add_string('telemetry.extended', 'true')
     
     if telemetry_type == 'AppDependencies':
-        if dependency_type == 'InProc':
+        if 'InProc' in dependency_type:
             # InProc spans are internal
             add_string('aws.span.kind', 'INTERNAL')
             add_string('aws.local.operation', name)
